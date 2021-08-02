@@ -319,7 +319,7 @@ class ModelAdapter(dl.BaseModelAdapter):
         # TODO: Test if the dataloader support that the images are not in the train / val directiries
         train_path = os.path.join(data_path, 'train')
         val_path = os.path.join(data_path, 'val')
-        tmp_link = '/tmp/tmp_link'  # use a temp link because os.symlink cann't override existing link
+        tmp_link = '{}/tmp_link'.format(data_path)  # use a temp link because os.symlink cann't override existing link
 
         os.makedirs(train_path, exist_ok=True)
         os.symlink(src=in_images_path, dst=tmp_link)
@@ -328,9 +328,10 @@ class ModelAdapter(dl.BaseModelAdapter):
         os.makedirs(val_path, exist_ok=True)
         os.symlink(src=in_images_path, dst=tmp_link)
         os.rename(tmp_link, os.path.join(val_path, 'images'))
-        val_ratio = 0.3
+        os.remove(tmp_link)
 
         # OPTIONAL FIELDS - KWARGS
+        val_ratio = kwargs.get('val_ratio', 0.3)
         # White / Black list option to use
         white_list = kwargs.get('white_list', False)  # white list is the verified annotations labels to work with
         black_list = kwargs.get('black_list', False)  # black list is the ileagal annotations labels to woerk with
