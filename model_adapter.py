@@ -35,7 +35,7 @@ class ModelAdapter(dl.BaseModelAdapter):
         'augment': False,  # help='augmented inference')
         'config_deepsort': "deep_sort_pytorch/configs/deep_sort.yaml",
         'hyp_yaml_path': 'data/hyp.scratch.yaml',   # hyperparameters for the train
-        'data_yaml_path': 'data/dlp_data.yaml',
+        'data_yaml_fname': 'dlp_data.yaml',
 
     }
 
@@ -312,13 +312,21 @@ class ModelAdapter(dl.BaseModelAdapter):
             each line is in format :{label_id} {x_center} {y_center} {width} {height} all normalized for the image shape
         """
 
+        # OPTIONAL FIELDS - KWARGS
+        val_ratio = kwargs.get('val_ratio', 0.3)
+        # White / Black list option to use
+        white_list = kwargs.get('white_list', False)  # white list is the verified annotations labels to work with
+        black_list = kwargs.get('black_list', False)  # black list is the ileagal annotations labels to woerk with
+        empty_prob = kwargs.get('empty_prob', 0)  # do we constrinat number of empty images
+        dir_prefix = kwargs.get('dir_prefix', '')  # prefix dir to seperate multiple trains
+
         # organize filesystem and structure
         # =================================
         in_images_path = os.path.join(data_path, 'items')
         in_labels_path = os.path.join(data_path, 'json')
         # TODO: Test if the dataloader support that the images are not in the train / val directiries
-        train_path = os.path.join(data_path, 'train')
-        val_path = os.path.join(data_path, 'val')
+        train_path = os.path.join(data_path, dir_prefix, 'train')
+        val_path = os.path.join(data_path, dir_prefix, 'val')
         tmp_link = '{}/tmp_link'.format(data_path)  # use a temp link because os.symlink cann't override existing link
 
         os.makedirs(train_path, exist_ok=True)
@@ -328,13 +336,6 @@ class ModelAdapter(dl.BaseModelAdapter):
         os.makedirs(val_path, exist_ok=True)
         os.symlink(src=in_images_path, dst=tmp_link)
         os.rename(tmp_link, os.path.join(val_path, 'images'))
-
-        # OPTIONAL FIELDS - KWARGS
-        val_ratio = kwargs.get('val_ratio', 0.3)
-        # White / Black list option to use
-        white_list = kwargs.get('white_list', False)  # white list is the verified annotations labels to work with
-        black_list = kwargs.get('black_list', False)  # black list is the ileagal annotations labels to woerk with
-        empty_prob = kwargs.get('empty_prob', 0)  # do we constrinat number of empty images
 
         json_filepaths = list()
         for path, subdirs, files in os.walk(in_labels_path):
@@ -398,7 +399,7 @@ class ModelAdapter(dl.BaseModelAdapter):
             except Exception:
                 self.logger.error("file: {} had probelm. Skipping".format(in_json_filepath))
 
-        config_path = os.path.join(data_path, 'dlp_data.yaml')
+        config_path = os.path.join(data_path, dir_prefix, self.data_yaml_fname)
         self.logger.info("Finished converting the data. Creating config file: {!r}. Labels dict {}.  Found {} empty items".
                          format(config_path, label_to_id, empty_items_cnt))
         self.create_yaml(train_path=train_path, val_path=val_path, classes=list(label_to_id.keys()),
@@ -437,7 +438,7 @@ class ModelAdapter(dl.BaseModelAdapter):
         parser.add_argument('--batch-size',        type=int, default=16, help='batch size for all GPUs')
         parser.add_argument('--total-batch-size',  type=int, default=16, help='total batch size for all GPUs')
         parser.add_argument('--weights',           type=str, default=self.weights_filename, help='initial weights path')
-        parser.add_argument('--data',              type=str, default=self.data_yaml_path, help='dlp_data.yaml path')
+        parser.add_argument('--data',              type=str, default=self.data_yaml_fname, help='dlp_data.yaml path')
         parser.add_argument('--global_rank',       type=int, default=-1, help='DDP parameter, do not modify')
         parser.add_argument('--local_rank',        type=int, default=-1, help='DDP parameter, do not modify')
         parser.add_argument('--single-cls', action='store_true', help='train multi-class data as single-class')
