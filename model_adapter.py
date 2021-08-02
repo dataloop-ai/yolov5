@@ -350,49 +350,51 @@ class ModelAdapter(dl.BaseModelAdapter):
         self.logger.debug("Preparing the images (#{}) for train: {!r} and Val {!r}. (ratio is set to: {})".
                           format(len(json_filepaths), train_path, val_path, val_ratio))
         for in_json_filepath in tqdm.tqdm(json_filepaths, unit='file'):
-            # read the item json
-            with open(in_json_filepath, 'r') as f:
-                data = json.load(f)
-            annotations = dl.AnnotationCollection.from_json(_json=data['annotations'])
-            img_width, img_height = data['metadata']['system']['width'], data['metadata']['system']['height']
-            # pad_top, pad_left, pad_bottom, pad_right = [194, 386, 2129, 4241]
-            if np.random.random() < val_ratio:
-                labels_path = os.path.join(val_path, 'labels')
-            else:
-                labels_path = os.path.join(train_path, 'labels')
+            try:
+                # read the item json
+                with open(in_json_filepath, 'r') as f:
+                    data = json.load(f)
+                annotations = dl.AnnotationCollection.from_json(_json=data['annotations'])
+                img_width, img_height = data['metadata']['system']['width'], data['metadata']['system']['height']
+                # pad_top, pad_left, pad_bottom, pad_right = [194, 386, 2129, 4241]
+                if np.random.random() < val_ratio:
+                    labels_path = os.path.join(val_path, 'labels')
+                else:
+                    labels_path = os.path.join(train_path, 'labels')
 
-            output_txt_filepath = in_json_filepath.replace(in_labels_path, labels_path).replace('.json', '.txt')
-            os.makedirs(os.path.dirname(output_txt_filepath), exist_ok=True)
-            item_lines = list()
-            for ann in annotations:
-                if ann.type == 'box' and not ann.label.lower():
+                output_txt_filepath = in_json_filepath.replace(in_labels_path, labels_path).replace('.json', '.txt')
+                os.makedirs(os.path.dirname(output_txt_filepath), exist_ok=True)
+                item_lines = list()
+                for ann in annotations:
+                    if ann.type == 'box' and not ann.label.lower():
 
-                    # skip annotation if on white / black list
-                    if white_list and ann.label not in white_list:
+                        # skip annotation if on white / black list
+                        if white_list and ann.label not in white_list:
+                            continue
+                        if black_list and ann.label in black_list:
+                            continue
+
+                        a_h = ann.bottom - ann.top
+                        a_w = ann.right - ann.left
+                        x_c = ann.left + (a_w / 2)
+                        y_c = ann.top + (a_h / 2)
+                        label = ann.label
+                        if label not in label_to_id:
+                            label_to_id[label] = len(label_to_id)
+                        label_id = label_to_id[label]
+                        line = '{label_id} {x_center} {y_center} {width} {height}'.format(
+                            label_id=label_id, x_center=x_c / img_width, y_center=y_c / img_height,
+                            width=a_w / img_width, height=a_h / img_height)
+                        item_lines.append(line)
+
+                if len(item_lines) == 0:
+                    if empty_prob > 0 and np.random.random() < empty_prob:  # save empty image with some prob
                         continue
-                    if black_list and ann.label in black_list:
-                        continue
 
-                    a_h = ann.bottom - ann.top
-                    a_w = ann.right - ann.left
-                    x_c = ann.left + (a_w / 2)
-                    y_c = ann.top + (a_h / 2)
-                    label = ann.label
-                    if label not in label_to_id:
-                        label_to_id[label] = len(label_to_id)
-                    label_id = label_to_id[label]
-                    line = '{label_id} {x_center} {y_center} {width} {height}'.format(
-                        label_id=label_id, x_center=x_c / img_width, y_center=y_c / img_height,
-                        width=a_w / img_width, height=a_h / img_height)
-                    item_lines.append(line)
-
-            # Do not save all empty crops - TODO
-            if len(item_lines) == 0:
-                if empty_prob > 0 and np.random.random() < empty_prob:  # save empty image with some prob
-                    continue
-
-            with open(output_txt_filepath, 'w') as f:
-                f.write('\n'.join(item_lines))
+                with open(output_txt_filepath, 'w') as f:
+                    f.write('\n'.join(item_lines))
+            except Exception:
+                self.logger.error("file: {} had probelm. Skipping".format(in_json_filepath))
 
         config_path = os.path.join(data_path, 'dlp_data.yaml')
         self.logger.info("Finished converting the data. Creating config file: {!r}".format(config_path))
