@@ -367,7 +367,7 @@ class ModelAdapter(dl.BaseModelAdapter):
                 os.makedirs(os.path.dirname(output_txt_filepath), exist_ok=True)
                 item_lines = list()
                 for ann in annotations:
-                    if ann.type == 'box' and not ann.label.lower():
+                    if ann.type == 'box':
 
                         # skip annotation if on white / black list
                         if white_list and ann.label not in white_list:
