@@ -328,7 +328,6 @@ class ModelAdapter(dl.BaseModelAdapter):
         os.makedirs(val_path, exist_ok=True)
         os.symlink(src=in_images_path, dst=tmp_link)
         os.rename(tmp_link, os.path.join(val_path, 'images'))
-        os.remove(tmp_link)
 
         # OPTIONAL FIELDS - KWARGS
         val_ratio = kwargs.get('val_ratio', 0.3)
@@ -355,7 +354,7 @@ class ModelAdapter(dl.BaseModelAdapter):
             with open(in_json_filepath, 'r') as f:
                 data = json.load(f)
             annotations = dl.AnnotationCollection.from_json(_json=data['annotations'])
-            img_width, img_height = data['itemMetadata']['system']['width'], data['itemMetadata']['system']['height']
+            img_width, img_height = data['metadata']['system']['width'], data['metadata']['system']['height']
             # pad_top, pad_left, pad_bottom, pad_right = [194, 386, 2129, 4241]
             if np.random.random() < val_ratio:
                 labels_path = os.path.join(val_path, 'labels')
