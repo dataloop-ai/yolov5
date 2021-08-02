@@ -133,17 +133,24 @@ class ModelAdapter(dl.BaseModelAdapter):
         :param dump_path: `str` local File System path where to dump trainins mid-resuls (checkpoints, logs...)
         """
         os.makedirs(dump_path, exist_ok=True)
+        cmd = [
+            'cd',  Path(__file__).parent.as_posix()+'/', '&& ',
+            'python3', 'train.py',
+            '--img-size', '640',    # max(self.input_shape)
+            '--batch', str(kwargs.get('batch', 4)),
+            '--epochs', str(kwargs.get('epochs', 10)),
+            '--data', os.path.join(data_path, 'dlp_data.yaml'),
+            '--device', str(self.device),
+            '--project', dump_path,
+            '--weights',  self.weights_filename,
+            ]
+            # dir=self.model_entity.codebase.local_path+'/',
         # TODO: run as a python command rather than as a command
-        cmd = '''
+        cmd_old_str = '''
         cd {dir} && 
-        python3 train.py --img-size {img_sz}
-                         --batch {bt}
-                         --epochs {ep}
-                         --data {yml} 
-                         --device {device} 
-                         --project {dump} 
-                         --weights {weights} '''.format(
-            dir=self.model_entity.codebase.local_path+'/',
+        python3 train.py --img-size {img_sz} --batch {bt} --epochs {ep} --data {yml} --device {device} --project {dump} --weights {weights} '''.format(
+            # dir=self.model_entity.codebase.local_path+'/',
+            dir=Path(__file__).parent.as_posix()+'/',
             # TODO: Debug
             # img_sz=max(self.input_shape),  # TODO: why img-size is different for train and test?! not width/height?!
             img_sz=640,
@@ -157,19 +164,19 @@ class ModelAdapter(dl.BaseModelAdapter):
         self.logger.info("Running Train:\n{}".format(cmd))
         try:
             test_versions_cmd = "import sys, torch, torchvision; print('Python: {};\nTorch {};\ntorchvision {}'.format(sys.version, torch.__version__, torchvision.__version__))"
-            v = subprocess.Popen(test_versions_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            v = subprocess.Popen(['python3', '-c', test_versions_cmd], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             ver_out, ver_err = [std.decode() for std in v.communicate()]
             self.logger.debug("Version check:\n{}".format(ver_out))
         except Exception:
             pass
 
-        p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        output, err = [std.decode() for std in p.communicate()]
-        exit_status = p.returncode
-        # exit_status = os.system(cmd)
+        # p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        # output, err = [std.decode() for std in p.communicate()]
+        # exit_status = p.returncode
+        exit_status = os.system(cmd_old_str)
 
         if exit_status:
-            self.logger.critical(output)
+            # self.logger.critical(output)
             raise RuntimeError('Train failed  :(')
 
         # Load the model now created to the adapter
@@ -304,6 +311,9 @@ class ModelAdapter(dl.BaseModelAdapter):
             txt file has lines of all the labels.
             each line is in format :{label_id} {x_center} {y_center} {width} {height} all normalized for the image shape
         """
+
+        # organize filesystem and structure
+        # =================================
         in_images_path = os.path.join(data_path, 'items')
         in_labels_path = os.path.join(data_path, 'json')
         # TODO: Test if the dataloader support that the images are not in the train / val directiries
@@ -319,6 +329,12 @@ class ModelAdapter(dl.BaseModelAdapter):
         os.symlink(src=in_images_path, dst=tmp_link)
         os.rename(tmp_link, os.path.join(val_path, 'images'))
         val_ratio = 0.3
+
+        # OPTIONAL FIELDS - KWARGS
+        # White / Black list option to use
+        white_list = kwargs.get('white_list', False)  # white list is the verified annotations labels to work with
+        black_list = kwargs.get('black_list', False)  # black list is the ileagal annotations labels to woerk with
+        empty_prob = kwargs.get('empty_prob', 0)  # do we constrinat number of empty images
 
         json_filepaths = list()
         for path, subdirs, files in os.walk(in_labels_path):
@@ -349,13 +365,19 @@ class ModelAdapter(dl.BaseModelAdapter):
             os.makedirs(os.path.dirname(output_txt_filepath), exist_ok=True)
             item_lines = list()
             for ann in annotations:
-                if ann.type == 'box' and not ann.label.lower().startswith('nd '):
-                    # remove pad ?!
+                if ann.type == 'box' and not ann.label.lower():
+
+                    # skip annotation if on white / black list
+                    if white_list and ann.label not in white_list:
+                        continue
+                    if black_list and ann.label in black_list:
+                        continue
+
                     a_h = ann.bottom - ann.top
                     a_w = ann.right - ann.left
                     x_c = ann.left + (a_w / 2)
                     y_c = ann.top + (a_h / 2)
-                    label = ann.label    # .lower().replace('nd ', '')
+                    label = ann.label
                     if label not in label_to_id:
                         label_to_id[label] = len(label_to_id)
                     label_id = label_to_id[label]
@@ -365,9 +387,9 @@ class ModelAdapter(dl.BaseModelAdapter):
                     item_lines.append(line)
 
             # Do not save all empty crops - TODO
-            # if len(item_lines) == 0:
-            #     if np.random.random() > 0.2:  # save only 1 fifth of all empty images
-            #         continue
+            if len(item_lines) == 0:
+                if empty_prob > 0 and np.random.random() < empty_prob:  # save empty image with some prob
+                    continue
 
             with open(output_txt_filepath, 'w') as f:
                 f.write('\n'.join(item_lines))
