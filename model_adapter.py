@@ -349,6 +349,7 @@ class ModelAdapter(dl.BaseModelAdapter):
         label_to_id = dict()
         self.logger.debug("Preparing the images (#{}) for train: {!r} and Val {!r}. (ratio is set to: {})".
                           format(len(json_filepaths), train_path, val_path, val_ratio))
+        empty_items_cnt = 0
         for in_json_filepath in tqdm.tqdm(json_filepaths, unit='file'):
             try:
                 # read the item json
@@ -388,6 +389,7 @@ class ModelAdapter(dl.BaseModelAdapter):
                         item_lines.append(line)
 
                 if len(item_lines) == 0:
+                    empty_items_cnt += 1
                     if empty_prob > 0 and np.random.random() < empty_prob:  # save empty image with some prob
                         continue
 
@@ -397,7 +399,8 @@ class ModelAdapter(dl.BaseModelAdapter):
                 self.logger.error("file: {} had probelm. Skipping".format(in_json_filepath))
 
         config_path = os.path.join(data_path, 'dlp_data.yaml')
-        self.logger.info("Finished converting the data. Creating config file: {!r}".format(config_path))
+        self.logger.info("Finished converting the data. Creating config file: {!r}. Labels dict {}.  Found {} empty items".
+                         format(config_path, label_to_id, empty_items_cnt))
         self.create_yaml(train_path=train_path, val_path=val_path, classes=list(label_to_id.keys()),
                          config_path=config_path)
 
