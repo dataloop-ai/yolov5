@@ -14,6 +14,7 @@ import time
 from pathlib import Path
 import yaml
 from multiprocessing.pool import ThreadPool
+from multiprocessing import Lock
 import traceback
 
 
@@ -426,8 +427,10 @@ class ModelAdapter(dl.BaseModelAdapter):
                     # empty_items_discarded += 1
                     return
 
-            # Create new files in the trainsets
-            shutil.copyfile(src=in_images_path + data['filename'], dst=images_path + data['filename'])
+            # Create new files in the train-set
+            dst = images_path + data['filename']
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            shutil.copyfile(src=in_images_path + data['filename'], dst=dst)
             with open(output_txt_filepath, 'w') as f:
                 f.write('\n'.join(item_lines))
                 f.write('\n')
