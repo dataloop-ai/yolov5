@@ -412,7 +412,7 @@ class ModelAdapter(dl.BaseModelAdapter):
 
         config_path = os.path.join(data_path, dir_prefix, self.data_yaml_fname)
         msg = "Finished converting the data. Creating config file: {!r}. ".format(config_path) + \
-        "\nLabels dict {}.  Found {} empty items".format(label_to_id) + \
+        "\nLabels dict {}.  Found {} empty items".format(label_to_id, empty_items_found_cnt) + \
         "\nVal count   : {}\nTrain count: {}\n(out of them empty {})".format(train_cnt, val_cnt, actual_empties)
 
         self.logger.info("Finished converting the data. Creating config file: {!r}. Labels dict {}.  Found {} empty items".
