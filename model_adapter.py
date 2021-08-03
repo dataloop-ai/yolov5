@@ -397,7 +397,8 @@ class ModelAdapter(dl.BaseModelAdapter):
                     empty_items_found_cnt += 1
                     if empty_prob > 0 and np.random.random() < empty_prob:  # save empty image with some prob
                         empty_items_discarded += 1
-                        os.remove(images_path + data['filename'])  # Remove the empty image from the copied ds
+                        # TODO: how to delete the copied (symlink) w/o deleting the original
+                        # os.remove(images_path + data['filename'])  # Remove the empty image from the copied ds
                         continue
 
                 with open(output_txt_filepath, 'w') as f:
