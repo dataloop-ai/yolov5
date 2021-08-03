@@ -362,8 +362,10 @@ class ModelAdapter(dl.BaseModelAdapter):
                 # pad_top, pad_left, pad_bottom, pad_right = [194, 386, 2129, 4241]
                 if np.random.random() < val_ratio:
                     labels_path = os.path.join(val_path, 'labels')
+                    images_path = os.path.join(val_path, 'images')
                 else:
                     labels_path = os.path.join(train_path, 'labels')
+                    images_path = os.path.join(train_path, 'images')
 
                 output_txt_filepath = in_json_filepath.replace(in_labels_path, labels_path).replace('.json', '.txt')
                 os.makedirs(os.path.dirname(output_txt_filepath), exist_ok=True)
@@ -394,6 +396,7 @@ class ModelAdapter(dl.BaseModelAdapter):
                     empty_items_found_cnt += 1
                     if empty_prob > 0 and np.random.random() < empty_prob:  # save empty image with some prob
                         empty_items_discarded += 1
+                        os.remove(images_path + data['filename'])  # Remove the empty image from the copied ds
                         continue
 
                 with open(output_txt_filepath, 'w') as f:
