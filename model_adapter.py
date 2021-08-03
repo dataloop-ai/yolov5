@@ -13,7 +13,8 @@ import json
 import time
 from pathlib import Path
 import yaml
-from multiprocessing.pool import  ThreadPool
+from multiprocessing.pool import ThreadPool
+import traceback
 
 
 class ModelAdapter(dl.BaseModelAdapter):
@@ -439,7 +440,7 @@ class ModelAdapter(dl.BaseModelAdapter):
                 f.write('\n')
         except Exception:
             # curropted_cnt += 1
-            self.logger.error("file: {} had problem. Skipping".format(in_json_filepath))
+            self.logger.error("file: {} had problem. Skipping\n\n{}".format(in_json_filepath, traceback.format_exc()))
 
     def create_yaml(self, train_path, val_path, classes, config_path='/tmp/dlp_data.yaml'):
         """
