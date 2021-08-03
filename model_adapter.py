@@ -13,6 +13,7 @@ import json
 import time
 from pathlib import Path
 import yaml
+from multiprocessing.pool import  ThreadPool
 
 
 class ModelAdapter(dl.BaseModelAdapter):
@@ -118,6 +119,7 @@ class ModelAdapter(dl.BaseModelAdapter):
         hyp = yaml.safe_load(open(self.hyp_yaml_path, 'r'))
         # data = yaml.safe_load(open(self.hyp_yaml_path, 'r'))
         opt = self._create_opt(dump_path=dump_path)
+        # Make sure opt.weights has the exact model file as it will load from there
 
         train_script.train(hyp, opt, self.device)
 
@@ -316,9 +318,9 @@ class ModelAdapter(dl.BaseModelAdapter):
         val_ratio = kwargs.get('val_ratio', 0.3)
         # White / Black list option to use
         white_list = kwargs.get('white_list', False)  # white list is the verified annotations labels to work with
-        black_list = kwargs.get('black_list', False)  # black list is the ileagal annotations labels to woerk with
-        empty_prob = kwargs.get('empty_prob', 0)  # do we constrinat number of empty images
-        dir_prefix = kwargs.get('dir_prefix', '')  # prefix dir to seperate multiple trains
+        black_list = kwargs.get('black_list', False)  # black list is the illegal annotations labels to work with
+        empty_prob = kwargs.get('empty_prob', 0)  # do we constraint number of empty images
+        dir_prefix = kwargs.get('dir_prefix', '')  # prefix dir to separate multiple trains
 
         # organize filesystem and structure
         # =================================
@@ -353,61 +355,26 @@ class ModelAdapter(dl.BaseModelAdapter):
         # COUNTERS
         empty_items_found_cnt, empty_items_discarded = 0, 0
         curropted_cnt = 0
+        pool = ThreadPool(processes=16)
         for in_json_filepath in tqdm.tqdm(json_filepaths, unit='file'):
-            try:
-                # read the item json
-                with open(in_json_filepath, 'r') as f:
-                    data = json.load(f)
-                annotations = dl.AnnotationCollection.from_json(_json=data['annotations'])
-                img_width, img_height = data['metadata']['system']['width'], data['metadata']['system']['height']
+            # Train - Val split
+            if np.random.random() < val_ratio:
+                labels_path = os.path.join(val_path, 'labels')
+                images_path = os.path.join(val_path, 'images')
+            else:
+                labels_path = os.path.join(train_path, 'labels')
+                images_path = os.path.join(train_path, 'images')
 
-                # Train - Val split
-                if np.random.random() < val_ratio:
-                    labels_path = os.path.join(val_path, 'labels')
-                    images_path = os.path.join(val_path, 'images')
-                else:
-                    labels_path = os.path.join(train_path, 'labels')
-                    images_path = os.path.join(train_path, 'images')
-
-                output_txt_filepath = in_json_filepath.replace(in_labels_path, labels_path).replace('.json', '.txt')
-                os.makedirs(os.path.dirname(output_txt_filepath), exist_ok=True)
-                item_lines = list()
-                for ann in annotations:
-                    if ann.type == 'box':
-
-                        # skip annotation if on white / black list
-                        if white_list and ann.label not in white_list:
-                            continue
-                        if black_list and ann.label in black_list:
-                            continue
-
-                        a_h = round(ann.bottom - ann.top, 5)
-                        a_w = round(ann.right - ann.left, 5)
-                        x_c = round(ann.left + (a_w / 2), 5)
-                        y_c = round(ann.top + (a_h / 2), 5)
-                        label = ann.label
-                        if label not in label_to_id:
-                            label_to_id[label] = len(label_to_id)
-                        label_id = label_to_id[label]
-                        line = '{label_id} {x_center} {y_center} {width} {height}'.format(
-                            label_id=label_id, x_center=x_c / img_width, y_center=y_c / img_height,
-                            width=a_w / img_width, height=a_h / img_height)
-                        item_lines.append(line)
-
-                if len(item_lines) == 0:
-                    empty_items_found_cnt += 1
-                    if empty_prob > 0 and np.random.random() < empty_prob:  # save empty image with some prob
-                        empty_items_discarded += 1
-                        # TODO: how to delete the copied (symlink) w/o deleting the original
-                        # os.remove(images_path + data['filename'])  # Remove the empty image from the copied ds
-                        continue
-
-                with open(output_txt_filepath, 'w') as f:
-                    f.write('\n'.join(item_lines))
-                    f.write('\n')
-            except Exception:
-                curropted_cnt += 1
-                self.logger.error("file: {} had problem. Skipping".format(in_json_filepath))
+            pool.apply_async(func=self._parse_single_annotation_file,
+                             args=(in_json_filepath, in_labels_path, labels_path, images_path, label_to_id),
+                             kwds={'white_list': white_list,
+                                   'black_list': black_list,
+                                   'empty_prob': empty_prob}
+                             )
+        pool.close()
+        pool.join()
+        pool.terminate()
+        # TODO: counters do not work in new version
 
         # COUNTERS
         actual_empties = empty_items_found_cnt - empty_items_discarded
@@ -423,6 +390,56 @@ class ModelAdapter(dl.BaseModelAdapter):
         self.logger.info(msg)
         self.create_yaml(train_path=train_path, val_path=val_path, classes=list(label_to_id.keys()),
                          config_path=config_path)
+
+    def _parse_single_annotation_file(self, in_json_filepath, in_labels_path, labels_path, images_path,
+                                      label_to_id,
+                                      white_list=False, black_list=False, empty_prob=0):
+        try:
+            # read the item json
+            with open(in_json_filepath, 'r') as f:
+                data = json.load(f)
+            annotations = dl.AnnotationCollection.from_json(_json=data['annotations'])
+            img_width, img_height = data['metadata']['system']['width'], data['metadata']['system']['height']
+
+            output_txt_filepath = in_json_filepath.replace(in_labels_path, labels_path).replace('.json', '.txt')
+            os.makedirs(os.path.dirname(output_txt_filepath), exist_ok=True)
+            item_lines = list()
+            for ann in annotations:
+                if ann.type == 'box':
+
+                    # skip annotation if on white / black list
+                    if white_list and ann.label not in white_list:
+                        continue
+                    if black_list and ann.label in black_list:
+                        continue
+
+                    a_h = round(ann.bottom - ann.top, 5)
+                    a_w = round(ann.right - ann.left, 5)
+                    x_c = round(ann.left + (a_w / 2), 5)
+                    y_c = round(ann.top + (a_h / 2), 5)
+                    label = ann.label
+                    if label not in label_to_id:
+                        label_to_id[label] = len(label_to_id)
+                    label_id = label_to_id[label]
+                    line = '{label_id} {x_center} {y_center} {width} {height}'.format(
+                        label_id=label_id, x_center=x_c / img_width, y_center=y_c / img_height,
+                        width=a_w / img_width, height=a_h / img_height)
+                    item_lines.append(line)
+
+            if len(item_lines) == 0:
+                # empty_items_found_cnt += 1
+                if empty_prob > 0 and np.random.random() < empty_prob:  # save empty image with some prob
+                    # empty_items_discarded += 1
+                    return
+
+            # Create new files in the trainsets
+            shutil.copyfile(src='', dst=images_path + data['filename'])
+            with open(output_txt_filepath, 'w') as f:
+                f.write('\n'.join(item_lines))
+                f.write('\n')
+        except Exception:
+            # curropted_cnt += 1
+            self.logger.error("file: {} had problem. Skipping".format(in_json_filepath))
 
     def create_yaml(self, train_path, val_path, classes, config_path='/tmp/dlp_data.yaml'):
         """
