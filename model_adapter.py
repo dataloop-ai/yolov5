@@ -330,15 +330,6 @@ class ModelAdapter(dl.BaseModelAdapter):
         # TODO: Test if the dataloader support that the images are not in the train / val directiries
         train_path = os.path.join(data_path, dir_prefix, 'train')
         val_path = os.path.join(data_path, dir_prefix, 'val')
-        tmp_link = '{}/tmp_link'.format(data_path)  # use a temp link because os.symlink cann't override existing link
-
-        os.makedirs(train_path, exist_ok=True)
-        os.symlink(src=in_images_path, dst=tmp_link)
-        os.rename(tmp_link, os.path.join(train_path, 'images'))
-
-        os.makedirs(val_path, exist_ok=True)
-        os.symlink(src=in_images_path, dst=tmp_link)
-        os.rename(tmp_link, os.path.join(val_path, 'images'))
 
         json_filepaths = list()
         for path, subdirs, files in os.walk(in_labels_path):
@@ -357,6 +348,7 @@ class ModelAdapter(dl.BaseModelAdapter):
         empty_items_found_cnt, empty_items_discarded = 0, 0
         curropted_cnt = 0
         pool = ThreadPool(processes=16)
+        # TODO: add lock for label_to_id
         for in_json_filepath in tqdm.tqdm(json_filepaths, unit='file'):
             # Train - Val split
             if np.random.random() < val_ratio:
@@ -367,7 +359,8 @@ class ModelAdapter(dl.BaseModelAdapter):
                 images_path = os.path.join(train_path, 'images')
 
             pool.apply_async(func=self._parse_single_annotation_file,
-                             args=(in_json_filepath, in_labels_path, labels_path, images_path, label_to_id),
+                             args=(in_json_filepath, in_labels_path, labels_path,
+                                   in_images_path, images_path, label_to_id),
                              kwds={'white_list': white_list,
                                    'black_list': black_list,
                                    'empty_prob': empty_prob}
@@ -392,8 +385,8 @@ class ModelAdapter(dl.BaseModelAdapter):
         self.create_yaml(train_path=train_path, val_path=val_path, classes=list(label_to_id.keys()),
                          config_path=config_path)
 
-    def _parse_single_annotation_file(self, in_json_filepath, in_labels_path, labels_path, images_path,
-                                      label_to_id,
+    def _parse_single_annotation_file(self, in_json_filepath, in_labels_path, labels_path,
+                                      in_images_path, images_path, label_to_id,
                                       white_list=False, black_list=False, empty_prob=0):
         try:
             # read the item json
@@ -434,7 +427,7 @@ class ModelAdapter(dl.BaseModelAdapter):
                     return
 
             # Create new files in the trainsets
-            shutil.copyfile(src='', dst=images_path + data['filename'])
+            shutil.copyfile(src=in_images_path + data['filename'], dst=images_path + data['filename'])
             with open(output_txt_filepath, 'w') as f:
                 f.write('\n'.join(item_lines))
                 f.write('\n')
