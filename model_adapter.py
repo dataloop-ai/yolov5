@@ -349,7 +349,7 @@ class ModelAdapter(dl.BaseModelAdapter):
         empty_items_found_cnt, empty_items_discarded = 0, 0
         curropted_cnt = 0
         pool = ThreadPool(processes=16)
-        # TODO: add lock for label_to_id
+        lock = Lock()
         for in_json_filepath in tqdm.tqdm(json_filepaths, unit='file'):
             # Train - Val split
             if np.random.random() < val_ratio:
@@ -361,7 +361,7 @@ class ModelAdapter(dl.BaseModelAdapter):
 
             pool.apply_async(func=self._parse_single_annotation_file,
                              args=(in_json_filepath, in_labels_path, labels_path,
-                                   in_images_path, images_path, label_to_id),
+                                   in_images_path, images_path, label_to_id, lock),
                              kwds={'white_list': white_list,
                                    'black_list': black_list,
                                    'empty_prob': empty_prob}
@@ -387,7 +387,7 @@ class ModelAdapter(dl.BaseModelAdapter):
                          config_path=config_path)
 
     def _parse_single_annotation_file(self, in_json_filepath, in_labels_path, labels_path,
-                                      in_images_path, images_path, label_to_id,
+                                      in_images_path, images_path, label_to_id, lock,
                                       white_list=False, black_list=False, empty_prob=0):
         try:
             # read the item json
@@ -413,8 +413,9 @@ class ModelAdapter(dl.BaseModelAdapter):
                     x_c = round(ann.left + (a_w / 2), 5)
                     y_c = round(ann.top + (a_h / 2), 5)
                     label = ann.label
-                    if label not in label_to_id:
-                        label_to_id[label] = len(label_to_id)
+                    with lock:
+                        if label not in label_to_id:
+                            label_to_id[label] = len(label_to_id)
                     label_id = label_to_id[label]
                     line = '{label_id} {x_center} {y_center} {width} {height}'.format(
                         label_id=label_id, x_center=x_c / img_width, y_center=y_c / img_height,
