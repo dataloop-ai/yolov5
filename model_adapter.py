@@ -350,7 +350,8 @@ class ModelAdapter(dl.BaseModelAdapter):
         label_to_id = dict()
         self.logger.debug("Preparing the images (#{}) for train: {!r} and Val {!r}. (ratio is set to: {})".
                           format(len(json_filepaths), train_path, val_path, val_ratio))
-        empty_items_cnt = 0
+        # COUNTERS
+        empty_items_found_cnt, empty_items_discarded = 0, 0
         for in_json_filepath in tqdm.tqdm(json_filepaths, unit='file'):
             try:
                 # read the item json
@@ -376,10 +377,10 @@ class ModelAdapter(dl.BaseModelAdapter):
                         if black_list and ann.label in black_list:
                             continue
 
-                        a_h = ann.bottom - ann.top
-                        a_w = ann.right - ann.left
-                        x_c = ann.left + (a_w / 2)
-                        y_c = ann.top + (a_h / 2)
+                        a_h = round(ann.bottom - ann.top, 5)
+                        a_w = round(ann.right - ann.left, 5)
+                        x_c = round(ann.left + (a_w / 2), 5)
+                        y_c = round(ann.top + (a_h / 2), 5)
                         label = ann.label
                         if label not in label_to_id:
                             label_to_id[label] = len(label_to_id)
@@ -390,18 +391,30 @@ class ModelAdapter(dl.BaseModelAdapter):
                         item_lines.append(line)
 
                 if len(item_lines) == 0:
-                    empty_items_cnt += 1
+                    empty_items_found_cnt += 1
                     if empty_prob > 0 and np.random.random() < empty_prob:  # save empty image with some prob
+                        empty_items_discarded += 1
                         continue
 
                 with open(output_txt_filepath, 'w') as f:
                     f.write('\n'.join(item_lines))
+                    f.write('\n')
             except Exception:
                 self.logger.error("file: {} had probelm. Skipping".format(in_json_filepath))
 
+        # COUNTERS
+        actual_empties = empty_items_found_cnt - empty_items_discarded
+        train_cnt = sum([len(files) for r, d, files in os.walk(train_path+'/labels')])
+        val_cnt = sum([len(files) for r, d, files in os.walk(val_path+'/labels')])
+
         config_path = os.path.join(data_path, dir_prefix, self.data_yaml_fname)
+        msg = "Finished converting the data. Creating config file: {!r}. ".format(config_path) + \
+        "\nLabels dict {}.  Found {} empty items".format(label_to_id) + \
+        "\nVal count   : {}\nTrain count: {}\n(out of them empty {})".format(train_cnt, val_cnt, actual_empties)
+
         self.logger.info("Finished converting the data. Creating config file: {!r}. Labels dict {}.  Found {} empty items".
-                         format(config_path, label_to_id, empty_items_cnt))
+                         format(config_path, label_to_id, empty_items_found_cnt))
+        self.logger.info(msg)
         self.create_yaml(train_path=train_path, val_path=val_path, classes=list(label_to_id.keys()),
                          config_path=config_path)
 
@@ -411,11 +424,11 @@ class ModelAdapter(dl.BaseModelAdapter):
         """
 
         yaml_str = f"""
-    # Train command: python train.py --data dlp_data.yaml
+    # Train command: python train.py --data {config_path}/dlp_data.yaml
     # Default dataset location is on ~/DATA folder
 
     # download command/URL (optional)
-    # download: python3 train_dataloop.py
+    # download: Not implemented
 
     # train and val data as 1) directory: path/images/, 2) file: path/images.txt, or 3) list: [path1/images/, path2/images/]
     train: {train_path}  
