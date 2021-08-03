@@ -360,7 +360,8 @@ class ModelAdapter(dl.BaseModelAdapter):
                     data = json.load(f)
                 annotations = dl.AnnotationCollection.from_json(_json=data['annotations'])
                 img_width, img_height = data['metadata']['system']['width'], data['metadata']['system']['height']
-                # pad_top, pad_left, pad_bottom, pad_right = [194, 386, 2129, 4241]
+
+                # Train - Val split
                 if np.random.random() < val_ratio:
                     labels_path = os.path.join(val_path, 'labels')
                     images_path = os.path.join(val_path, 'images')
@@ -406,7 +407,7 @@ class ModelAdapter(dl.BaseModelAdapter):
                     f.write('\n')
             except Exception:
                 curropted_cnt += 1
-                self.logger.error("file: {} had probelm. Skipping".format(in_json_filepath))
+                self.logger.error("file: {} had problem. Skipping".format(in_json_filepath))
 
         # COUNTERS
         actual_empties = empty_items_found_cnt - empty_items_discarded
@@ -415,12 +416,10 @@ class ModelAdapter(dl.BaseModelAdapter):
 
         config_path = os.path.join(data_path, dir_prefix, self.data_yaml_fname)
         msg = "Finished converting the data. Creating config file: {!r}. ".format(config_path) + \
-        "\nLabels dict {}.  Found {} empty items".format(label_to_id, empty_items_found_cnt) + \
-        "\nVal count   : {}\nTrain count: {}\n(out of them {} empty,  {} corrupted)".\
-                  format(train_cnt, val_cnt, actual_empties, curropted_cnt)
+            "\nLabels dict {}.  Found {} empty items".format(label_to_id, empty_items_found_cnt) + \
+            "\nVal count   : {}\nTrain count: {}\n(out of them {} empty,  {} corrupted)".\
+                  format(val_cnt, train_cnt, actual_empties, curropted_cnt)
 
-        self.logger.info("Finished converting the data. Creating config file: {!r}. Labels dict {}.  Found {} empty items".
-                         format(config_path, label_to_id, empty_items_found_cnt))
         self.logger.info(msg)
         self.create_yaml(train_path=train_path, val_path=val_path, classes=list(label_to_id.keys()),
                          config_path=config_path)
