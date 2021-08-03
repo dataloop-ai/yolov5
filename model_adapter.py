@@ -352,6 +352,7 @@ class ModelAdapter(dl.BaseModelAdapter):
                           format(len(json_filepaths), train_path, val_path, val_ratio))
         # COUNTERS
         empty_items_found_cnt, empty_items_discarded = 0, 0
+        curropted_cnt = 0
         for in_json_filepath in tqdm.tqdm(json_filepaths, unit='file'):
             try:
                 # read the item json
@@ -403,6 +404,7 @@ class ModelAdapter(dl.BaseModelAdapter):
                     f.write('\n'.join(item_lines))
                     f.write('\n')
             except Exception:
+                curropted_cnt += 1
                 self.logger.error("file: {} had probelm. Skipping".format(in_json_filepath))
 
         # COUNTERS
@@ -413,7 +415,8 @@ class ModelAdapter(dl.BaseModelAdapter):
         config_path = os.path.join(data_path, dir_prefix, self.data_yaml_fname)
         msg = "Finished converting the data. Creating config file: {!r}. ".format(config_path) + \
         "\nLabels dict {}.  Found {} empty items".format(label_to_id, empty_items_found_cnt) + \
-        "\nVal count   : {}\nTrain count: {}\n(out of them empty {})".format(train_cnt, val_cnt, actual_empties)
+        "\nVal count   : {}\nTrain count: {}\n(out of them {} empty,  {} corrupted)".\
+                  format(train_cnt, val_cnt, actual_empties, curropted_cnt)
 
         self.logger.info("Finished converting the data. Creating config file: {!r}. Labels dict {}.  Found {} empty items".
                          format(config_path, label_to_id, empty_items_found_cnt))
