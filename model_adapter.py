@@ -229,7 +229,7 @@ class ModelAdapter(dl.BaseModelAdapter):
         for i in range(len(batch)):
             item_detections = dets[i].detach().cpu().numpy()  # xyxy, conf, class
             nof_detections = len(item_detections)
-            item_predictions = None
+            item_predictions = ml.predictions_utils.create_collection()
             for b in range(nof_detections):
                 scale_h, scale_w = np.array(orig_shapes[i]) / np.array(self.input_shape)
                 left, top, right, bottom, score, label_id = item_detections[b]
