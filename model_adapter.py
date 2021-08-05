@@ -198,6 +198,9 @@ class ModelAdapter(dl.BaseModelAdapter):
 
         scaled_batch, orig_shapes = [], []
         for img in batch:
+            if img.shape[2] == 4:  # with alpha channel -> remove it
+                img = img[:, :, :3]
+
             orig_shapes.append(img.shape[:2])  # NOTE: numpy shape is height, width (rows,cols) while PIL.size is width, height
             img_scaled = cv2.resize(img, self.input_shape[::-1])  # dsize is width height while self.input_shape is in hxw - np format
             # crop_np, ratio, pad = letterbox(crop_np, (self.nn_shape_h, self.nn_shape_w))  # output is width height
