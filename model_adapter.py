@@ -349,8 +349,11 @@ class ModelAdapter(dl.BaseModelAdapter):
         self.logger.debug("Preparing the images (#{}) for train: {!r} and Val {!r}. (ratio is set to: {})".
                           format(len(json_filepaths), train_path, val_path, val_ratio))
         # COUNTERS
-        empty_items_found_cnt, empty_items_discarded = 0, 0
-        curropted_cnt = 0
+        counters = {
+            'empty_items_found': 0,
+            'empty_items_discarded': 0,
+            'corrupted_cnt': 0
+        }
         pool = ThreadPool(processes=16)
         lock = Lock()
         for in_json_filepath in tqdm.tqdm(json_filepaths, unit='file'):
@@ -364,7 +367,7 @@ class ModelAdapter(dl.BaseModelAdapter):
 
             pool.apply_async(func=self._parse_single_annotation_file,
                              args=(in_json_filepath, in_labels_path, labels_path,
-                                   in_images_path, images_path, label_to_id, lock),
+                                   in_images_path, images_path, label_to_id, counters, lock),
                              kwds={'white_list': white_list,
                                    'black_list': black_list,
                                    'empty_prob': empty_prob}
@@ -375,6 +378,8 @@ class ModelAdapter(dl.BaseModelAdapter):
         # TODO: counters do not work in new version
 
         # COUNTERS
+        empty_items_found_cnt, empty_items_discarded = counters['empty_items_found'], counters['empty_items_discarded']
+        corrupted_cnt = counters['corrupted_cnt']
         actual_empties = empty_items_found_cnt - empty_items_discarded
         train_cnt = sum([len(files) for r, d, files in os.walk(train_path+'/labels')])
         val_cnt = sum([len(files) for r, d, files in os.walk(val_path+'/labels')])
@@ -383,14 +388,14 @@ class ModelAdapter(dl.BaseModelAdapter):
         msg = "Finished converting the data. Creating config file: {!r}. ".format(config_path) + \
             "\nLabels dict {}.  Found {} empty items".format(label_to_id, empty_items_found_cnt) + \
             "\nVal count   : {}\nTrain count: {}\n(out of them {} empty,  {} corrupted)".\
-                  format(val_cnt, train_cnt, actual_empties, curropted_cnt)
+                  format(val_cnt, train_cnt, actual_empties, corrupted_cnt)
 
         self.logger.info(msg)
         self.create_yaml(train_path=train_path, val_path=val_path, classes=list(label_to_id.keys()),
                          config_path=config_path)
 
     def _parse_single_annotation_file(self, in_json_filepath, in_labels_path, labels_path,
-                                      in_images_path, images_path, label_to_id, lock,
+                                      in_images_path, images_path, label_to_id, counters, lock,
                                       white_list=False, black_list=False, empty_prob=0):
         try:
             # read the item json
@@ -426,9 +431,11 @@ class ModelAdapter(dl.BaseModelAdapter):
                     item_lines.append(line)
 
             if len(item_lines) == 0:
-                # empty_items_found_cnt += 1
+                with lock:
+                    counters['empty_items_found'] += 1
                 if empty_prob > 0 and np.random.random() < empty_prob:  # save empty image with some prob
-                    # empty_items_discarded += 1
+                    with lock:
+                        counters['empty_items_discarded'] += 1
                     return
 
             # Create new files in the train-set
@@ -439,7 +446,8 @@ class ModelAdapter(dl.BaseModelAdapter):
                 f.write('\n'.join(item_lines))
                 f.write('\n')
         except Exception:
-            # curropted_cnt += 1
+            with lock:
+                counters['corrupted_cnt'] += 1
             self.logger.error("file: {} had problem. Skipping\n\n{}".format(in_json_filepath, traceback.format_exc()))
 
     def create_yaml(self, train_path, val_path, classes, config_path='/tmp/dlp_data.yaml'):
