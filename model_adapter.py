@@ -1,4 +1,3 @@
-from operator import mod
 import dtlpy as dl
 from dtlpy import ml
 import os
@@ -37,7 +36,7 @@ class ModelAdapter(dl.BaseModelAdapter):
         'agnostic_nms': False,  # help='class-agnostic NMS')
         'augment': False,  # help='augmented inference')
         'config_deepsort': "deep_sort_pytorch/configs/deep_sort.yaml",
-        'hyp_yaml_path': 'data/hyp.scratch.yaml',   # hyperparameters for the train
+        'hyp_yaml_fname': 'data/hyp.scratch.yaml',   # hyperparameters for the train
         'data_yaml_fname': 'dlp_data.yaml',
 
     }
@@ -125,8 +124,11 @@ class ModelAdapter(dl.BaseModelAdapter):
         :param dump_path: `str` local File System path where to dump trainins mid-resuls (checkpoints, logs...)
         """
         import train as train_script
-        hyp = yaml.safe_load(open(self.hyp_yaml_path, 'r'))
-        # data = yaml.safe_load(open(self.hyp_yaml_path, 'r'))
+        if os.path.isfile(self.hyp_yaml_fname):
+            hyp_full_path = self.hyp_yaml_fname
+        else:
+            hyp_full_path = os.path.join(os.path.dirname(__file__), self.hyp_yaml_fname)
+        hyp = yaml.safe_load(open(hyp_full_path, 'r'))
         opt = self._create_opt(data_path=data_path, dump_path=dump_path)
         # Make sure opt.weights has the exact model file as it will load from there
 
