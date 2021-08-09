@@ -132,6 +132,11 @@ class ModelAdapter(dl.BaseModelAdapter):
         opt = self._create_opt(data_path=data_path, dump_path=dump_path)
         # Make sure opt.weights has the exact model file as it will load from there
 
+        if self.device is None:
+            if not torch.cuda.is_available():
+                self.device_name = 'cpu'
+            self.device = torch.device(self.device_name)
+
         train_script.train(hyp, opt, self.device)
 
         # TODO: the train script actually loads the model directly
