@@ -84,14 +84,19 @@ class ModelAdapter(dl.BaseModelAdapter):
             self.class_map = {k: v for k, v in enumerate(model.names if hasattr(model, 'names') else model.module.names)}
 
         else:  # Load from file
-            model = torch.load(self.weights_path, map_location=self.device)['model'].float()  # load to FP32
+            if os.path.isfile(self.weights_path):
+                weights_path = self.weights_path
+            else:
+                weights_path = os.path.join(self.weights_path, self.weights_filename)
+
+            model = torch.load(weights_path, map_location=self.device)['model'].float()  # load to FP32
             model.to(self.device).eval()
 
             self.class_map = {k: v for k, v in enumerate(model.names if hasattr(model, 'names') else model.module.names)}
             if self.half:
                 model.half()  # to FP16
             self.logger.info("Model loaded from  {}. Other attrs: {}".
-                      format(self.weights_path, {k: self.__getattribute__(k) for k in self._defaults.keys()}))
+                             format(weights_path, {k: self.__getattribute__(k) for k in self._defaults.keys()}))
 
             # If on GPU -  run with empty image
             if self.device_name != 'cpu':
@@ -122,7 +127,7 @@ class ModelAdapter(dl.BaseModelAdapter):
         import train as train_script
         hyp = yaml.safe_load(open(self.hyp_yaml_path, 'r'))
         # data = yaml.safe_load(open(self.hyp_yaml_path, 'r'))
-        opt = self._create_opt(dump_path=dump_path)
+        opt = self._create_opt(data_path=data_path, dump_path=dump_path)
         # Make sure opt.weights has the exact model file as it will load from there
 
         train_script.train(hyp, opt, self.device)
@@ -477,15 +482,16 @@ class ModelAdapter(dl.BaseModelAdapter):
         with open(config_path, 'w') as f:
             f.write(yaml_str)
 
-    def _create_opt(self, dump_path):
+    def _create_opt(self, data_path, dump_path):
         import argparse
+        data_yaml_path = os.path.join(data_path, self.data_yaml_fname)
         parser = argparse.ArgumentParser()
         parser.add_argument('--save_dir',          type=str, default=dump_path, help='path to save the results')
         parser.add_argument('--epochs',            type=int, default=50)  # 300
         parser.add_argument('--batch-size',        type=int, default=16, help='batch size for all GPUs')
         parser.add_argument('--total-batch-size',  type=int, default=16, help='total batch size for all GPUs')
         parser.add_argument('--weights',           type=str, default=self.weights_filename, help='initial weights path')
-        parser.add_argument('--data',              type=str, default=self.data_yaml_fname, help='dlp_data.yaml path')
+        parser.add_argument('--data',              type=str, default=data_yaml_path, help='dlp_data.yaml path')
         parser.add_argument('--global_rank',       type=int, default=-1, help='DDP parameter, do not modify')
         parser.add_argument('--local_rank',        type=int, default=-1, help='DDP parameter, do not modify')
         parser.add_argument('--single-cls', action='store_true', help='train multi-class data as single-class')
