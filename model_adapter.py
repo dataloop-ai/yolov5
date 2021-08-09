@@ -242,7 +242,7 @@ class ModelAdapter(dl.BaseModelAdapter):
             for b in range(nof_detections):
                 scale_h, scale_w = np.array(orig_shapes[i]) / np.array(self.input_shape)
                 left, top, right, bottom, score, label_id = item_detections[b]
-                self.logger.debug(f"   --Before scaling--                       @ ({top:2.1f}, {left:2.1f}),\t ({bottom:2.1f}, {right:2.1f})")
+                self.logger.debug(f"   --Before scaling--                        @ ({top:2.1f}, {left:2.1f}),\t ({bottom:2.1f}, {right:2.1f})")
                 top    = round( max(0, np.floor(top + 0.5).astype('int32')) * scale_h, 3)
                 left   = round( max(0, np.floor(left + 0.5).astype('int32')) * scale_w, 3)
                 bottom = round( min(orig_shapes[i][0], np.floor(bottom + 0.5).astype('int32') * scale_h), 3)
@@ -497,6 +497,13 @@ class ModelAdapter(dl.BaseModelAdapter):
         parser.add_argument('--global_rank',       type=int, default=-1, help='DDP parameter, do not modify')
         parser.add_argument('--local_rank',        type=int, default=-1, help='DDP parameter, do not modify')
         parser.add_argument('--single-cls', action='store_true', help='train multi-class data as single-class')
+
+        parser.add_argument('--evolve',  type=int, nargs='?', const=300, help='evolve hyperparameters for x generations')
+        parser.add_argument('--noval',   action='store_true', help='only validate final epoch')
+        parser.add_argument('--cfg',     type=str,              default='', help='model.yaml path')
+        parser.add_argument('--resume',  nargs='?', const=True, default=False, help='resume most recent training')
+        parser.add_argument('--workers', type=int,              default=8, help='maximum number of dataloader workers')
+        parser.add_argument('--freeze',  type=int,              default=0, help='Number of layers to freeze. backbone=10, all=24')
 
         # parser.add_argument('--cfg', type=str, default='', help='model.yaml path')
         # parser.add_argument('--hyp', type=str, default='data/hyp.scratch.yaml', help='hyperparameters path')
