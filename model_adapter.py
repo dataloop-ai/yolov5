@@ -32,7 +32,7 @@ class ModelAdapter(dl.BaseModelAdapter):
         'conf_thres': 0.4,  # help='object confidence threshold')
         'iou_thres': 0.5,  # help='IOU threshold for NMS')
         'fourcc': 'mp4v',  # help='output video codec (verify ffmpeg support)')
-        'device_str': 'cpu',  # help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
+        'device_name': 0,  # help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
         'classes': None,  # , help='filter by class')
         'agnostic_nms': False,  # help='class-agnostic NMS')
         'augment': False,  # help='augmented inference')
@@ -67,12 +67,12 @@ class ModelAdapter(dl.BaseModelAdapter):
 
         # Initialize
         if not torch.cuda.is_available():
-            self.device_str = 'cpu'
-        self.device = torch.device(self.device_str)
+            self.device_name = 'cpu'
+        self.device = torch.device(self.device_name)
         self.half = self.device.type != 'cpu'  # half precision only supported on CUDA
 
-        if getattr(self, 'use_pretrained', False):
-            model = torch.hub.load('ultralytics/yolov5', 'yolov5l', pretrained=True)
+        if self.snapshot.configuration.get('use_pretrained', False):
+            model = torch.hub.load('ultralytics/yolov5', self.weights_filename, pretrained=True)
             # Move entire model to device, as it contatins some inner tensors
             # _ = [st.to(self.device) for st in  model.model.stride]
             # _ = [st.to(self.device) for st in  model.model.model[-1].stride]
@@ -92,7 +92,7 @@ class ModelAdapter(dl.BaseModelAdapter):
                       format(self.weights_path, {k: self.__getattribute__(k) for k in self._defaults.keys()}))
 
             # If on GPU -  run with empty image
-            if self.device_str != 'cpu':
+            if self.device_name != 'cpu':
                 zeroes_img = torch.zeros((1, 3, self.input_shape[0], self.input_shape[1]), device=self.device)  # init img
                 if self.half:
                     zeroes_img = zeroes_img.half()
