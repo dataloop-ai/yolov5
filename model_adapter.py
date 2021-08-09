@@ -233,11 +233,11 @@ class ModelAdapter(dl.BaseModelAdapter):
             for b in range(nof_detections):
                 scale_h, scale_w = np.array(orig_shapes[i]) / np.array(self.input_shape)
                 left, top, right, bottom, score, label_id = item_detections[b]
-                self.logger.debug(f"                                       @ ({top:2.1f}, {left:2.1f}),\t ({bottom:2.1f}, {right:2.1f})")
+                self.logger.debug(f"   --Before scaling--                       @ ({top:2.1f}, {left:2.1f}),\t ({bottom:2.1f}, {right:2.1f})")
                 top    = round( max(0, np.floor(top + 0.5).astype('int32')) * scale_h, 3)
                 left   = round( max(0, np.floor(left + 0.5).astype('int32')) * scale_w, 3)
-                bottom = round( min(orig_shapes[i][0], np.floor(bottom + 0.5).astype('int32')) * scale_h, 3)
-                right  = round( min(orig_shapes[i][1], np.floor(right + 0.5).astype('int32')) * scale_w, 3)
+                bottom = round( min(orig_shapes[i][0], np.floor(bottom + 0.5).astype('int32') * scale_h), 3)
+                right  = round( min(orig_shapes[i][1], np.floor(right + 0.5).astype('int32') * scale_w), 3)
                 label  = self.class_map[int(label_id)]
                 self.logger.debug(f"\tBox {b:2} - {label:20}: {score:1.3f} @ {(top, left)},\t {(bottom, right)}")
                 item_predictions = ml.predictions_utils.add_box_prediction(
