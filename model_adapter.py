@@ -527,4 +527,4 @@ class ModelAdapter(dl.BaseModelAdapter):
         # parser.add_argument('--save_period', type=int, default=-1, help='Log model after every "save_period" epoch')
         # parser.add_argument('--artifact_alias', type=str, default="latest", help='version of dataset artifact to be used')
         opt = parser.parse_known_args()
-        return opt
+        return opt[0]
