@@ -72,7 +72,9 @@ class ModelAdapter(dl.BaseModelAdapter):
         self.half = self.device.type != 'cpu'  # half precision only supported on CUDA
 
         if self.snapshot.configuration.get('use_pretrained', False):
-            model = torch.hub.load('ultralytics/yolov5', self.weights_filename, pretrained=True)
+            model_arch = self.weights_filename.split('.')[0]
+            model = torch.hub.load('ultralytics/yolov5', model_arch, pretrained=True)
+            # FIXME: in case we choose CPU - set all inner tensors to CPU  - not working when torch.cuda.is_avilable()
             # Move entire model to device, as it contatins some inner tensors
             # _ = [st.to(self.device) for st in  model.model.stride]
             # _ = [st.to(self.device) for st in  model.model.model[-1].stride]
