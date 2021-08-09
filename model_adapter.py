@@ -500,6 +500,7 @@ class ModelAdapter(dl.BaseModelAdapter):
 
         parser.add_argument('--evolve',  type=int, nargs='?', const=300, help='evolve hyperparameters for x generations')
         parser.add_argument('--noval',   action='store_true', help='only validate final epoch')
+        parser.add_argument('--nosave',  action='store_true', help='only save final checkpoint')
         parser.add_argument('--cfg',     type=str,              default='', help='model.yaml path')
         parser.add_argument('--resume',  nargs='?', const=True, default=False, help='resume most recent training')
         parser.add_argument('--workers', type=int,              default=8, help='maximum number of dataloader workers')
