@@ -36,7 +36,7 @@ class ModelAdapter(dl.BaseModelAdapter):
         'agnostic_nms': False,  # help='class-agnostic NMS')
         'augment': False,  # help='augmented inference')
         'config_deepsort': "deep_sort_pytorch/configs/deep_sort.yaml",
-        'hyp_yaml_fname': 'data/hyp.scratch.yaml',   # hyperparameters for the train
+        'hyp_yaml_fname': 'data/hyps/hyp.scratch.yaml',   # hyperparameters for the train
         'data_yaml_fname': 'dlp_data.yaml',
 
     }
