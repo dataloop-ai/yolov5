@@ -502,6 +502,7 @@ class ModelAdapter(dl.BaseModelAdapter):
         parser.add_argument('--global_rank',       type=int, default=-1, help='DDP parameter, do not modify')
         parser.add_argument('--local_rank',        type=int, default=-1, help='DDP parameter, do not modify')
         parser.add_argument('--single-cls', action='store_true', help='train multi-class data as single-class')
+        parser.add_argument('--imgsz', '--img', '--img-size', type=int, default=max(self.input_shape), help='train, val image size (pixels)')
 
         parser.add_argument('--evolve',  type=int, nargs='?', const=300, help='evolve hyperparameters for x generations')
         parser.add_argument('--noval',   action='store_true', help='only validate final epoch')
@@ -524,7 +525,6 @@ class ModelAdapter(dl.BaseModelAdapter):
 
         # NEW
         # parser.add_argument('--hyp', type=str, default='data/hyps/hyp.scratch.yaml', help='hyperparameters path')
-        # parser.add_argument('--imgsz', '--img', '--img-size', type=int, default=640, help='train, val image size (pixels)')
         # parser.add_argument('--bucket', type=str, default='', help='gsutil bucket')
         # parser.add_argument('--device', default='', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
         # parser.add_argument('--project', default='runs/train', help='save to project/name')
