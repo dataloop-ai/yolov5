@@ -129,7 +129,7 @@ class ModelAdapter(dl.BaseModelAdapter):
         else:
             hyp_full_path = os.path.join(os.path.dirname(__file__), self.hyp_yaml_fname)
         hyp = yaml.safe_load(open(hyp_full_path, 'r'))
-        opt = self._create_opt(data_path=data_path, dump_path=dump_path)
+        opt = self._create_opt(data_path=data_path, dump_path=dump_path, **kwargs)
         # Make sure opt.weights has the exact model file as it will load from there
 
         if self.device is None:
@@ -489,14 +489,14 @@ class ModelAdapter(dl.BaseModelAdapter):
         with open(config_path, 'w') as f:
             f.write(yaml_str)
 
-    def _create_opt(self, data_path, dump_path):
+    def _create_opt(self, data_path, dump_path, **kwargs):
         import argparse
         data_yaml_path = os.path.join(data_path, self.data_yaml_fname)
         parser = argparse.ArgumentParser()
         parser.add_argument('--save_dir',          type=str, default=dump_path, help='path to save the results')
-        parser.add_argument('--epochs',            type=int, default=50)  # 300
-        parser.add_argument('--batch-size',        type=int, default=16, help='batch size for all GPUs')
-        parser.add_argument('--total-batch-size',  type=int, default=16, help='total batch size for all GPUs')
+        parser.add_argument('--epochs',            type=int, default=kwargs.get('epochs', 100))  # 300
+        parser.add_argument('--batch-size',        type=int, default=kwargs.get('batch', 4), help='batch size for all GPUs')
+        # parser.add_argument('--total-batch-size',  type=int, default=16, help='total batch size for all GPUs')
         parser.add_argument('--weights',           type=str, default=self.weights_filename, help='initial weights path')
         parser.add_argument('--data',              type=str, default=data_yaml_path, help='dlp_data.yaml path')
         parser.add_argument('--global_rank',       type=int, default=-1, help='DDP parameter, do not modify')
