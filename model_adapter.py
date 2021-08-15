@@ -220,7 +220,7 @@ class ModelAdapter(dl.BaseModelAdapter):
         """
 
         # OPTIONAL FIELDS - KWARGS
-        val_ratio = kwargs.get('val_ratio', 0.3)
+        val_ratio = kwargs.get('val_ratio', 0.0)
         # White / Black list option to use
         white_list = kwargs.get('white_list', False)  # white list is the verified annotations labels to work with
         black_list = kwargs.get('black_list', False)  # black list is the illegal annotations labels to work with
@@ -378,7 +378,7 @@ class ModelAdapter(dl.BaseModelAdapter):
     def _create_opt(self, data_path, dump_path, **kwargs):
         import argparse
         data_yaml_path = os.path.join(data_path, self.data_yaml_fname)
-        dump_path = increment_path(Path(dump_path))
+        dump_path = increment_path(Path(dump_path)).as_posix()
 
         parser = argparse.ArgumentParser()
         parser.add_argument('--save_dir',          type=str, default=dump_path, help='path to save the results')
