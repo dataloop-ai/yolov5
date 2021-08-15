@@ -220,7 +220,7 @@ class ModelAdapter(dl.BaseModelAdapter):
         """
 
         # OPTIONAL FIELDS - KWARGS
-        val_ratio = kwargs.get('val_ratio', 0.0)
+        val_ratio = kwargs.get('val_ratio', 0.2)
         # White / Black list option to use
         white_list = kwargs.get('white_list', False)  # white list is the verified annotations labels to work with
         black_list = kwargs.get('black_list', False)  # black list is the illegal annotations labels to work with
