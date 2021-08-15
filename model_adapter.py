@@ -15,6 +15,7 @@ import yaml
 from multiprocessing.pool import ThreadPool
 from multiprocessing import Lock
 import traceback
+from utils.general import increment_path
 
 
 class ModelAdapter(dl.BaseModelAdapter):
@@ -141,6 +142,8 @@ class ModelAdapter(dl.BaseModelAdapter):
 
         # Train scripts returns some results.  We need to load the adapter to the latest state
         torch.load(os.path.join(dump_path, 'weights', 'best.pt'))
+        self.opt = opt
+        self.logger.debug("\nUsed opt: \n", json.dumps(opt, indent=2))
 
         self.logger.debug("Use train.py as script for more options during the train")
 
@@ -375,6 +378,8 @@ class ModelAdapter(dl.BaseModelAdapter):
     def _create_opt(self, data_path, dump_path, **kwargs):
         import argparse
         data_yaml_path = os.path.join(data_path, self.data_yaml_fname)
+        dump_path = increment_path(Path(dump_path))
+
         parser = argparse.ArgumentParser()
         parser.add_argument('--save_dir',          type=str, default=dump_path, help='path to save the results')
         parser.add_argument('--epochs',            type=int, default=kwargs.get('epochs', 100))  # 300
