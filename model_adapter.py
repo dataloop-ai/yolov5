@@ -118,7 +118,7 @@ class ModelAdapter(dl.BaseModelAdapter):
         # NOTE: Train script saves the model to runs/weights  dir as best.pt 
         torch.save(self.model, os.path.join(local_path, self.weights_filename))
 
-    def train_newer(self, data_path, dump_path, **kwargs):
+    def train(self, data_path, dump_path, **kwargs):
         """ Train the model according to data in local_path and save the snapshot to dump_path
         :param data_path: `str` local File System path to where the data was downloaded and converted at
         :param dump_path: `str` local File System path where to dump training mid-results (checkpoints, logs...)
@@ -201,65 +201,6 @@ class ModelAdapter(dl.BaseModelAdapter):
                     score=score, label=label, adapter=self,
                     collection=item_predictions
                 )
-            predictions.append(item_predictions)
-
-        return predictions
-
-    def predict_obsolete(self, batch, **kwargs):
-        """ Model inference (predictions) on batch of images
-
-        :param batch: `np.ndarray`
-        :return: `List of List`  first list is by length of the batch (number of items) `list[]`  prediction results by len(batch)
-                                 second list is for prediction per item (`self.BoxPrediction` Or `self.ClassPrediction`)
-                                 Note for classification this support multiple classificatio per one item
-        """
-        from utils.datasets import letterbox
-        from utils.torch_utils import select_device, time_synchronized
-        from utils.general import check_img_size, non_max_suppression, scale_coords
-
-        scaled_batch, orig_shapes = [], []
-        for img in batch:
-            orig_shapes.append(img.shape[:2])  # NOTE: numpy shape is height, width (rows,cols) while PIL.size is width, height
-            img_scaled = cv2.resize(img, self.input_shape[::-1])  # dsize is width height while self.input_shape is in hxw - np format
-            # crop_np, ratio, pad = letterbox(crop_np, (self.nn_shape_h, self.nn_shape_w))  # output is width height
-            img_scaled = img_scaled.transpose(2, 0, 1)  #  RGB X height X width
-            img_scaled = np.ascontiguousarray(img_scaled)
-            scaled_batch.append(img_scaled)
-
-        scaled_batch = np.array(scaled_batch)
-
-
-        batch_torch = torch.from_numpy(scaled_batch).to(self.device)
-        batch_torch = batch_torch.half() if self.half else batch_torch.float()  # uint8 to fp16/32
-        batch_torch /= 255.0  # 0 - 255 to 0.0 - 1.0
-        if batch_torch.ndimension() == 3:
-            batch_torch = img.unsqueeze(0)
-
-        # Inference
-        t1 = time_synchronized()
-        result = self.model(batch_torch, augment=self.augment)
-        dets = result[0]
-        # Apply NMS
-        dets = non_max_suppression(
-            dets, self.conf_thres, self.iou_thres, classes=self.classes, agnostic=self.agnostic_nms
-        )
-
-        predictions = []
-        for i in range(len(batch)):
-            item_detections = dets[i].detach().cpu().numpy()  # xyxy, conf, class
-            nof_detections = len(item_detections)
-            item_predictions = []
-            for b in range(nof_detections):
-                scale_h, scale_w = np.array(orig_shapes[i]) / np.array(self.input_shape)
-                left, top, right, bottom, score, label_id = item_detections[b]
-                self.logger.debug(f"                                       @ ({top:2.1f}, {left:2.1f}),\t ({bottom:2.1f}, {right:2.1f})")
-                top    = round( max(0, np.floor(top + 0.5).astype('int32')) * scale_h, 3)
-                left   = round( max(0, np.floor(left + 0.5).astype('int32')) * scale_w, 3)
-                bottom = round( min(orig_shapes[i][0], np.floor(bottom + 0.5).astype('int32')) * scale_h, 3)
-                right  = round( min(orig_shapes[i][1], np.floor(right + 0.5).astype('int32')) * scale_w, 3)
-                label  = self.class_map[int(label_id)]
-                self.logger.debug(f"\tBox {b:2} - {label:20}: {score:1.3f} @ {(top, left)},\t {(bottom, right)}")
-                item_predictions.append(self.BoxPrediction(top=top, left=left, bottom=bottom, right=right, score=score, label=label))
             predictions.append(item_predictions)
 
         return predictions
