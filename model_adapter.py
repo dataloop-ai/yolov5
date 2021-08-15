@@ -378,7 +378,8 @@ class ModelAdapter(dl.BaseModelAdapter):
     def _create_opt(self, data_path, dump_path, **kwargs):
         import argparse
         data_yaml_path = os.path.join(data_path, self.data_yaml_fname)
-        dump_path = increment_path(Path(dump_path)).as_posix()
+        if os.path.isdir(dump_path):
+            dump_path = increment_path(Path(dump_path)).as_posix()
 
         parser = argparse.ArgumentParser()
         parser.add_argument('--save_dir',          type=str, default=dump_path, help='path to save the results')
