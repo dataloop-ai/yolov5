@@ -141,7 +141,10 @@ class ModelAdapter(dl.BaseModelAdapter):
         results = train_script.train(hyp, opt, self.device)
 
         # Train scripts returns some results.  We need to load the adapter to the latest state
-        torch.load(os.path.join(dump_path, 'weights', 'best.pt'))
+        act_dump_path = self.opt.save_dir
+        if act_dump_path != dump_path:
+            self.logger.warning("Dump path was incremented to {}".format(act_dump_path))
+        torch.load(os.path.join(act_dump_path, 'weights', 'best.pt'))
         self.opt = opt
         self.logger.debug("\nUsed opt: \n", opt)
 
