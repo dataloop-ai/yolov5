@@ -143,7 +143,7 @@ class ModelAdapter(dl.BaseModelAdapter):
         # Train scripts returns some results.  We need to load the adapter to the latest state
         torch.load(os.path.join(dump_path, 'weights', 'best.pt'))
         self.opt = opt
-        self.logger.debug("\nUsed opt: \n", json.dumps(opt, indent=2))
+        self.logger.debug("\nUsed opt: \n", opt)
 
         self.logger.debug("Use train.py as script for more options during the train")
 
