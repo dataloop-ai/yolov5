@@ -160,7 +160,9 @@ class ModelAdapter(dl.BaseModelAdapter):
 
         scaled_batch, orig_shapes = [], []
         for img in batch:
-            if img.shape[2] == 4:  # with alpha channel -> remove it
+            if len(img.shape) == 2:  # Gray scale image -> expand to 3 channels
+                img = np.stack((img,)*3, axis=-1)
+            elif img.shape[2] == 4:  # with alpha channel -> remove it
                 img = img[:, :, :3]
 
             orig_shapes.append(img.shape[:2])  # NOTE: numpy shape is height, width (rows,cols) while PIL.size is width, height
