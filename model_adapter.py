@@ -318,7 +318,12 @@ class ModelAdapter(dl.BaseModelAdapter):
             with open(in_json_filepath, 'r') as f:
                 data = json.load(f)
             annotations = dl.AnnotationCollection.from_json(_json=data['annotations'])
-            img_width, img_height = data['itemMetadata']['system']['width'], data['itemMetadata']['system']['height']
+            if 'itemMetadata' in data:  # support both types of json files
+                item_metadata = data['itemMetadata']
+            else:
+                item_metadata = data['metadata']
+
+            img_width, img_height = item_metadata['system']['width'], data['itemMetadata']['system']['height']
 
             output_txt_filepath = in_json_filepath.replace(in_labels_path, labels_path).replace('.json', '.txt')
             os.makedirs(os.path.dirname(output_txt_filepath), exist_ok=True)
