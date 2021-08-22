@@ -323,7 +323,7 @@ class ModelAdapter(dl.BaseModelAdapter):
             else:
                 item_metadata = data['metadata']
 
-            img_width, img_height = item_metadata['system']['width'], data['itemMetadata']['system']['height']
+            img_width, img_height = item_metadata['system']['width'], item_metadata['system']['height']
 
             output_txt_filepath = in_json_filepath.replace(in_labels_path, labels_path).replace('.json', '.txt')
             os.makedirs(os.path.dirname(output_txt_filepath), exist_ok=True)
