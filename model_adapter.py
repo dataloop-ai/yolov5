@@ -116,8 +116,19 @@ class ModelAdapter(dl.BaseModelAdapter):
 
         :param local_path: `str` directory path in local FileSystem
         """
-        # NOTE: Train script saves the model to runs/weights  dir as best.pt 
+        # NOTE: Train script saves the model to runs/weights  dir as best.pt
+
+        # ckpt = {'epoch': epoch,
+        #         'best_fitness': best_fitness,
+        #         'model': deepcopy(de_parallel(model)).half(),
+        #         'ema': deepcopy(ema.ema).half(),
+        #         'updates': ema.updates,
+        #         'optimizer': optimizer.state_dict(),
+        #         'wandb_id': loggers.wandb.wandb_run.id if loggers.wandb else None
+        #         }
+
         torch.save(self.model, os.path.join(local_path, self.weights_filename))
+
 
     def train(self, data_path, dump_path, **kwargs):
         """ Train the model according to data in local_path and save the snapshot to dump_path
@@ -146,7 +157,7 @@ class ModelAdapter(dl.BaseModelAdapter):
             self.logger.warning("Dump path was incremented to {}".format(act_dump_path))
         torch.load(os.path.join(act_dump_path, 'weights', 'best.pt'))
         self.opt = opt
-        self.logger.debug("\nUsed opt: \n", opt)
+        self.logger.debug("\nUsed opt: \n{}".format(opt))
 
         self.logger.debug("Use train.py as script for more options during the train")
 
