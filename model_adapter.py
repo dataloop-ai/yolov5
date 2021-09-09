@@ -181,6 +181,36 @@ class ModelAdapter(dl.BaseModelAdapter):
         self.snapshot.configuration['label_map'] = self.label_map
         self.snapshot.update()
 
+    def train(self, data_path, output_path, **kwargs):
+        """ Train the model according to data in local_path and save the snapshot to dump_path
+
+            Virtual method - need to implement
+        :param data_path: `str` local File System path to where the data was downloaded and converted at
+        :param output_path: `str` local File System path where to dump training mid-results (checkpoints, logs...)
+        """
+        import train as train_script
+        configuration = self.configuration
+        configuration.update(self.snapshot.configuration)
+        num_epochs = configuration.get('num_epochs', 10)
+        batch_size = configuration.get('batch_size', 64)
+        input_size = configuration.get('input_size', 256)
+
+        if os.path.isfile(self.hyp_yaml_fname):
+            hyp_full_path = self.hyp_yaml_fname
+        else:
+            hyp_full_path = os.path.join(os.path.dirname(__file__), self.hyp_yaml_fname)
+        hyp = yaml.safe_load(open(hyp_full_path, 'r'))
+        opt = self._create_opt(data_path=data_path, dump_path=output_path, **kwargs)
+        # Make sure opt.weights has the exact model file as it will load from there
+
+        train_results = train_script.train(hyp, opt, self.device)
+        self.logger.info('Train Finished. Actual output path: {}'.format(opt.save_dir))
+
+        # load best model weights
+        best_model_wts = os.path.join(opt.save_dir, 'weights', 'best.pt')
+        self.model = torch.load(best_model_wts)['model']
+        # self.model.load_state_dict(best_model_wts)
+
     def load_old__(self, local_path, **kwargs):
         """ Loads model and populates self.model with a `runnable` model
 
