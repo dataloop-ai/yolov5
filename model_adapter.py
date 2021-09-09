@@ -36,7 +36,10 @@ class ModelAdapter(dl.BaseModelAdapter):
 
     configuration = {
         'input_shape': (480, 640),
-        'model_fname': 'yolov5l.pt'
+        'model_fname': 'yolov5l.pt',
+        # Detection configs
+        'agnostic_nms': False,  # help='class-agnostic NMS')
+        'iou_thres': 0.5,  # help='IOU threshold for NMS')
 
     }
     _defaults = {
@@ -83,8 +86,15 @@ class ModelAdapter(dl.BaseModelAdapter):
 
         self.logger.info("Loading a model from {}".format(local_path))
         # load model arch and state
-        state_dict = torch.load(model_path)
-        self.model = state_dict['model']
+
+        # TODO: issues with saving the model with `model.model.model[-1].inplace  (Detect)
+        model = torch.load(model_path)
+        if isinstance(model, dict):
+            state_dict = model
+            self.model = state_dict['model']
+        else:
+            self.model = model
+
         # load classes
         self.label_map = {k: v for k, v in enumerate(self.model.names if hasattr(self.model, 'names') else self.model.module.names)}
         self.model.to(self.device)  # TODO: TEST THIS, i had some issues with this command in yolo v5 - for GPU
@@ -108,6 +118,8 @@ class ModelAdapter(dl.BaseModelAdapter):
         :param batch: `np.ndarray`
         :return `list[dl.AnnotationCollection]` prediction results by len(batch)
         """
+
+        min_score = kwargs.get('min_score', 0.4)
         img_transform = transforms.Compose(
             [
                 transforms.ToPILImage(),
@@ -137,7 +149,8 @@ class ModelAdapter(dl.BaseModelAdapter):
         dets = result[0]
         # Apply NMS
         dets = non_max_suppression(
-            dets, self.conf_thres, self.iou_thres, classes=self.classes, agnostic=self.agnostic_nms
+            dets, min_score, self.configuration['iou_thres'],
+            classes=None, agnostic=self.configuration['agnostic_nms']
         )
 
         predictions = []
