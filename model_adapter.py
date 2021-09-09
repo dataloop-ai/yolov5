@@ -2,11 +2,16 @@ import dtlpy as dl
 from dtlpy import ml
 import os
 import shutil
-import subprocess
 import numpy as np
 import cv2
 import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import DataLoader
 import torchvision
+from torchvision import transforms
+# from torchvision.transforms.functional import
+from PIL import Image
 import tqdm
 import json
 import time
@@ -15,15 +20,25 @@ import yaml
 from multiprocessing.pool import ThreadPool
 from multiprocessing import Lock
 import traceback
-from utils.general import increment_path
+from utils.general import increment_path, non_max_suppression
+
 
 
 class ModelAdapter(dl.BaseModelAdapter):
     """
     Yolo5 Model adapter - based on ultralytics pytorch implementation.
     The class bind Dataloop model and snapshot entities with model code implementation
+
+
+    # NOTE: Starting dtlpy version 1.35 we use a different BaseModelAdapter
+            This is the updated version of the adapter for dtlpy 1.35
     """
 
+    configuration = {
+        'input_shape': (480, 640),
+        'model_fname': 'yolov5l.pt'
+
+    }
     _defaults = {
         'input_shape': (480, 640),  # height, width - numpy format
         'config_name':  'config.yaml',
@@ -44,14 +59,100 @@ class ModelAdapter(dl.BaseModelAdapter):
 
     def __init__(self, model_entity):
         super(ModelAdapter, self).__init__(model_entity)
-        self.device = None
-        self.half = False
+        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        self.half = self.device.type != 'cpu'  # half precision only supported on CUDA
+        self.label_map = {}
+        self.logger.info('Model Adapter instance created. Torch_adpter branch')
 
     # ===============================
     # NEED TO IMPLEMENT THESE METHODS
     # ===============================
 
     def load(self, local_path, **kwargs):
+        """ Loads model and populates self.model with a `runnable` model
+
+            This function is called by load_from_snapshot (download to local and then loads)
+
+        :param local_path: `str` directory path in local fileSystem where the weights is taken from
+        """
+        # get the global paths
+        # TODO: should in just verify that i've uploaded from snapshot first?!
+        weights_filename = self.snapshot.configuration.get('weights_filename', self.configuration['model_fname'])
+        input_shape = self.snapshot.configuration.get('input_shape', self.configuration['input_shape'])
+        classes_filename = self.snapshot.configuration.get('classes_filename', 'classes.json')
+
+        model_path = os.path.join(local_path, weights_filename)
+        classes_path = os.path.join(local_path, classes_filename)
+
+        self.logger.info("Loading a model from {}".format(local_path))
+        # load classes
+        with open(classes_path, 'r') as f:
+            self.label_map = json.load(f)
+
+        # load model arch and state
+        self.model = torch.load(model_path)
+        self.model.to(self.device)  # TODO: TEST THIS, i had some issues with this command in yolo v5 - for GPU
+        self.model.eval()
+
+        # How to load the label_map from loaded model
+        self.logger.info("Loaded model from {} successfully".format(model_path))
+
+        # # Save the pytorch preprocess
+        # self.preprocess = transforms.Compose(
+        #     [
+        #         transforms.ToPILImage(),
+        #         transforms.Resize(input_shape),
+        #         transforms.ToTensor(),
+        #         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        #     ]
+        # )
+
+    def predict(self, batch, **kwargs):
+        """ Model inference (predictions) on batch of image
+        :param batch: `np.ndarray`
+        :return `list[dl.AnnotationCollection]` prediction results by len(batch)
+        """
+        img_transform = transforms.Compose(
+            [
+                transforms.ToPILImage(),
+                transforms.Resize(self.configuration['input_shape'][::-1]),
+                # Resize expect width height while self.input_shape is in hxw
+                transforms.ToTensor(),
+                # transforms.permute(2, 0, 1),
+                # transforms.contiguous(),
+                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+            ]
+        )
+        # TODO: test if new version support these edgecases:
+        #   1) gray scale images -> stack to 3 channesl
+        #   2) alpha channel -> removes it
+        img_tensors, orig_shapes = [], []
+        for img in batch:
+            img_tensors.append(img_transform(img.astype('uint8')))
+            orig_shapes.append(img.shape[:2])  # NOTE: numpy shape is height, width (rows,cols) while PIL.size is width, height
+
+        batch_tensor = torch.stack(img_tensors).to(self.device)
+        # TODO: add in the compose - with conditional
+        batch_tensor = batch_tensor.half() if self.half else batch_tensor.float()  # uint8 to fp16/32
+
+        # Inference
+        t1 = time.time()   # time_synchronized()
+        result = self.model(batch_tensor, augment=self.augment)
+        dets = result[0]
+        # Apply NMS
+        dets = non_max_suppression(
+            dets, self.conf_thres, self.iou_thres, classes=self.classes, agnostic=self.agnostic_nms
+        )
+
+        predictions = []
+        for i in range(len(batch)):
+            item_detections = dets[i].detach().cpu().numpy()  # xyxy, conf, class
+            nof_detections = len(item_detections)
+
+        print('predicted!  last img in batch had {} detections'.format(nof_detections))
+        return None
+
+    def load_old__(self, local_path, **kwargs):
         """ Loads model and populates self.model with a `runnable` model
 
             This function is called by load_from_snapshot (download to local and then loads)
@@ -107,7 +208,7 @@ class ModelAdapter(dl.BaseModelAdapter):
 
         self.model = model
 
-    def save(self, local_path, **kwargs):
+    def save_old__(self, local_path, **kwargs):
         """ saves configuration and weights locally
 
             Virtual method - need to implement
@@ -129,8 +230,7 @@ class ModelAdapter(dl.BaseModelAdapter):
 
         torch.save(self.model, os.path.join(local_path, self.weights_filename))
 
-
-    def train(self, data_path, dump_path, **kwargs):
+    def train_old___(self, data_path, dump_path, **kwargs):
         """ Train the model according to data in local_path and save the snapshot to dump_path
         :param data_path: `str` local File System path to where the data was downloaded and converted at
         :param dump_path: `str` local File System path where to dump training mid-results (checkpoints, logs...)
@@ -161,7 +261,7 @@ class ModelAdapter(dl.BaseModelAdapter):
 
         self.logger.debug("Use train.py as script for more options during the train")
 
-    def predict(self, batch, verbose=True):
+    def predict_old__(self, batch, verbose=True):
         """ Model inference (predictions) on batch of image
         :param batch: `np.ndarray`
         :return `list[dl.AnnotationCollection]` prediction results by len(batch)
@@ -224,7 +324,7 @@ class ModelAdapter(dl.BaseModelAdapter):
 
         return predictions
 
-    def convert(self, data_path, **kwargs):
+    def convert_old__(self, data_path, **kwargs):
         """ Convert Dataloop structure data to model structured
 
             e.g. take dlp dir structure and construct annotation file
@@ -449,3 +549,51 @@ class ModelAdapter(dl.BaseModelAdapter):
 
         opt = parser.parse_known_args()
         return opt[0]
+
+
+def _get_coco_labels_json():
+    return ['person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus', 'train', 'truck', 'boat', 'traffic light',
+            'fire hydrant', 'stop sign', 'parking meter', 'bench', 'bird', 'cat', 'dog', 'horse', 'sheep', 'cow',
+            'elephant', 'bear', 'zebra', 'giraffe', 'backpack', 'umbrella', 'handbag', 'tie', 'suitcase', 'frisbee',
+            'skis', 'snowboard', 'sports ball', 'kite', 'baseball bat', 'baseball glove', 'skateboard', 'surfboard',
+            'tennis racket', 'bottle', 'wine glass', 'cup', 'fork', 'knife', 'spoon', 'bowl', 'banana', 'apple',
+            'sandwich', 'orange', 'broccoli', 'carrot', 'hot dog', 'pizza', 'donut', 'cake', 'chair', 'couch',
+            'potted plant', 'bed', 'dining table', 'toilet', 'tv', 'laptop', 'mouse', 'remote', 'keyboard', 'cell phone',
+            'microwave', 'oven', 'toaster', 'sink', 'refrigerator', 'book', 'clock', 'vase', 'scissors', 'teddy bear',
+            'hair drier', 'toothbrush']  # class names
+
+def model_and_snapshot_creation(env='prod', yolo_size='small'):
+    dl.setenv(env)
+    project = dl.projects.get('DataloopModels')
+
+    codebase = dl.GitCodebase(git_url='https://github.com/dataloop-ai/yolov5.git', git_tag='torch_adapter') #  TODO:  git_tag='master')
+    model = project.models.create(model_name='yolo-v5',
+                                  description='Global Dataloop Yolo V5 implemented in pytorch',
+                                  output_type=dl.AnnotationType.BOX,
+                                  is_global=False,  # FIXME
+                                  tags=['torch', 'yolo', 'detection'],
+                                  codebase=codebase,
+                                  entry_point='model_adapter.py',
+                                  )
+
+    # TODO: can we add two model arc in one dir - yolov5l, yolov5s
+    abbv = yolo_size[0]
+
+    bucket = dl.buckets.create(dl.BucketType.GCS,
+                               gcs_project_name='viewo-main',
+                               gcs_bucket_name='model-mgmt-snapshots',
+                               gcs_prefix='yolo-v5-small')
+    snapshot = model.snapshots.create(snapshot_name='pretrained-yolo-v5',
+                                      description='yolo v5 small arch, pretrained on ms-coco',
+                                      tags=['pretrained', 'ms-coco'],
+                                      dataset_id=None,
+                                      # is_global=True,
+                                      # status='trained',
+                                      configuration={'weights_filename': 'yolo5vs.pt',
+                                                     # 'classes_filename': 'classes.json'
+                                                     },
+                                      project_id=project.id,
+                                      bucket=bucket,
+                                      labels=_get_coco_labels_json()
+                                      )
+    return snapshot
