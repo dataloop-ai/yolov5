@@ -78,19 +78,15 @@ class ModelAdapter(dl.BaseModelAdapter):
         # get the global paths
         # TODO: should in just verify that i've uploaded from snapshot first?!
         weights_filename = self.snapshot.configuration.get('weights_filename', self.configuration['model_fname'])
-        input_shape = self.snapshot.configuration.get('input_shape', self.configuration['input_shape'])
-        classes_filename = self.snapshot.configuration.get('classes_filename', 'classes.json')
-
         model_path = os.path.join(local_path, weights_filename)
-        classes_path = os.path.join(local_path, classes_filename)
+        input_shape = self.snapshot.configuration.get('input_shape', self.configuration['input_shape'])
 
         self.logger.info("Loading a model from {}".format(local_path))
-        # load classes
-        with open(classes_path, 'r') as f:
-            self.label_map = json.load(f)
-
         # load model arch and state
-        self.model = torch.load(model_path)
+        state_dict = torch.load(model_path)
+        self.model = state_dict['model']
+        # load classes
+        self.label_map = {k: v for k, v in enumerate(self.model.names if hasattr(self.model, 'names') else self.model.module.names)}
         self.model.to(self.device)  # TODO: TEST THIS, i had some issues with this command in yolo v5 - for GPU
         self.model.eval()
 
@@ -137,7 +133,7 @@ class ModelAdapter(dl.BaseModelAdapter):
 
         # Inference
         t1 = time.time()   # time_synchronized()
-        result = self.model(batch_tensor, augment=self.augment)
+        result = self.model(batch_tensor, augment=False)
         dets = result[0]
         # Apply NMS
         dets = non_max_suppression(
@@ -148,9 +144,42 @@ class ModelAdapter(dl.BaseModelAdapter):
         for i in range(len(batch)):
             item_detections = dets[i].detach().cpu().numpy()  # xyxy, conf, class
             nof_detections = len(item_detections)
+            item_predictions = ml.predictions_utils.create_collection()
+            for b in range(nof_detections):
+                scale_h, scale_w = np.array(orig_shapes[i]) / np.array(self.input_shape)
+                left, top, right, bottom, score, label_id = item_detections[b]
+                self.logger.debug(f"   --Before scaling--                        @ ({top:2.1f}, {left:2.1f}),\t ({bottom:2.1f}, {right:2.1f})")
+                top    = round( max(0, np.floor(top + 0.5).astype('int32')) * scale_h, 3)
+                left   = round( max(0, np.floor(left + 0.5).astype('int32')) * scale_w, 3)
+                bottom = round( min(orig_shapes[i][0], np.floor(bottom + 0.5).astype('int32') * scale_h), 3)
+                right  = round( min(orig_shapes[i][1], np.floor(right + 0.5).astype('int32') * scale_w), 3)
+                label  = self.class_map[int(label_id)]
+                self.logger.debug(f"\tBox {b:2} - {label:20}: {score:1.3f} @ {(top, left)},\t {(bottom, right)}")
+                item_predictions = ml.predictions_utils.add_box_prediction(
+                    left=left, top=top, right=right, bottom=bottom,
+                    score=score, label=label, adapter=self,
+                    collection=item_predictions
+                )
+            predictions.append(item_predictions)
 
-        print('predicted!  last img in batch had {} detections'.format(nof_detections))
-        return None
+        return predictions
+
+    def save(self, local_path, **kwargs):
+        """
+         saves configuration and weights locally
+
+              Virtual method - need to implement
+
+              the function is called in save_to_snapshot which first save locally and then uploads to snapshot entity
+
+          :param local_path: `str` directory path in local FileSystem
+        """
+        weights_filename = kwargs.get('weights_filename', self.configuration['weights_filename'])
+        weights_path = os.path.join(local_path, weights_filename)
+        torch.save(self.model, weights_path)
+        self.snapshot.configuration['weights_filename'] = weights_filename
+        self.snapshot.configuration['label_map'] = self.label_map
+        self.snapshot.update()
 
     def load_old__(self, local_path, **kwargs):
         """ Loads model and populates self.model with a `runnable` model
@@ -207,28 +236,6 @@ class ModelAdapter(dl.BaseModelAdapter):
                 _ = model(zeroes_img)
 
         self.model = model
-
-    def save_old__(self, local_path, **kwargs):
-        """ saves configuration and weights locally
-
-            Virtual method - need to implement
-
-            the function is called in save_to_snapshot which first save locally and then uploads to snapshot entity
-
-        :param local_path: `str` directory path in local FileSystem
-        """
-        # NOTE: Train script saves the model to runs/weights  dir as best.pt
-
-        # ckpt = {'epoch': epoch,
-        #         'best_fitness': best_fitness,
-        #         'model': deepcopy(de_parallel(model)).half(),
-        #         'ema': deepcopy(ema.ema).half(),
-        #         'updates': ema.updates,
-        #         'optimizer': optimizer.state_dict(),
-        #         'wandb_id': loggers.wandb.wandb_run.id if loggers.wandb else None
-        #         }
-
-        torch.save(self.model, os.path.join(local_path, self.weights_filename))
 
     def train_old___(self, data_path, dump_path, **kwargs):
         """ Train the model according to data in local_path and save the snapshot to dump_path
@@ -589,7 +596,7 @@ def model_and_snapshot_creation(env='prod', yolo_size='small'):
                                       dataset_id=None,
                                       # is_global=True,
                                       # status='trained',
-                                      configuration={'weights_filename': 'yolo5vs.pt',
+                                      configuration={'weights_filename': 'yolov5s.pt',
                                                      # 'classes_filename': 'classes.json'
                                                      },
                                       project_id=project.id,
