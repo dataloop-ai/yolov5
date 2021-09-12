@@ -21,6 +21,7 @@ from multiprocessing.pool import ThreadPool
 from multiprocessing import Lock
 import traceback
 from utils.general import increment_path, non_max_suppression
+from utils.callbacks import Callbacks
 
 
 
@@ -40,6 +41,9 @@ class ModelAdapter(dl.BaseModelAdapter):
         # Detection configs
         'agnostic_nms': False,  # help='class-agnostic NMS')
         'iou_thres': 0.5,  # help='IOU threshold for NMS')
+        # yaml files
+        'hyp_yaml_fname': 'data/hyps/hyp.scratch.yaml',  # hyperparameters for the train
+        'data_yaml_fname': 'dlp_data.yaml',
 
     }
     _defaults = {
@@ -55,15 +59,12 @@ class ModelAdapter(dl.BaseModelAdapter):
         'agnostic_nms': False,  # help='class-agnostic NMS')
         'augment': False,  # help='augmented inference')
         'config_deepsort': "deep_sort_pytorch/configs/deep_sort.yaml",
-        'hyp_yaml_fname': 'data/hyps/hyp.scratch.yaml',   # hyperparameters for the train
-        'data_yaml_fname': 'dlp_data.yaml',
 
     }
 
     def __init__(self, model_entity):
         super(ModelAdapter, self).__init__(model_entity)
-        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-        self.half = self.device.type != 'cpu'  # half precision only supported on CUDA
+        self._set_device(device_name="cuda:0")
         self.label_map = {}
         self.logger.info('Model Adapter instance created. Torch_adpter branch')
 
@@ -88,7 +89,8 @@ class ModelAdapter(dl.BaseModelAdapter):
         # load model arch and state
 
         # TODO: issues with saving the model with `model.model.model[-1].inplace  (Detect)
-        model = torch.load(model_path)
+        #   See models/experimental.py   - attempt_load function  # 101 for compatability issues
+        model = torch.load(model_path, map_location=self.device)
         if isinstance(model, dict):
             state_dict = model
             self.model = state_dict['model']
@@ -126,9 +128,7 @@ class ModelAdapter(dl.BaseModelAdapter):
                 transforms.Resize(self.configuration['input_shape'][::-1]),
                 # Resize expect width height while self.input_shape is in hxw
                 transforms.ToTensor(),
-                # transforms.permute(2, 0, 1),
-                # transforms.contiguous(),
-                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+                # transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),  # TODO: the resutls are more consistent when not using the normalize
             ]
         )
         # TODO: test if new version support these edgecases:
@@ -144,7 +144,6 @@ class ModelAdapter(dl.BaseModelAdapter):
         batch_tensor = batch_tensor.half() if self.half else batch_tensor.float()  # uint8 to fp16/32
 
         # Inference
-        t1 = time.time()   # time_synchronized()
         result = self.model(batch_tensor, augment=False)
         dets = result[0]
         # Apply NMS
@@ -156,18 +155,15 @@ class ModelAdapter(dl.BaseModelAdapter):
         predictions = []
         for i in range(len(batch)):
             item_detections = dets[i].detach().cpu().numpy()  # xyxy, conf, class
-            nof_detections = len(item_detections)
             item_predictions = ml.predictions_utils.create_collection()
-            for b in range(nof_detections):
-                scale_h, scale_w = np.array(orig_shapes[i]) / np.array(self.input_shape)
-                left, top, right, bottom, score, label_id = item_detections[b]
+            for idx, (left, top, right, bottom, score, label_id) in enumerate(item_detections):
                 self.logger.debug(f"   --Before scaling--                        @ ({top:2.1f}, {left:2.1f}),\t ({bottom:2.1f}, {right:2.1f})")
-                top    = round( max(0, np.floor(top + 0.5).astype('int32')) * scale_h, 3)
-                left   = round( max(0, np.floor(left + 0.5).astype('int32')) * scale_w, 3)
-                bottom = round( min(orig_shapes[i][0], np.floor(bottom + 0.5).astype('int32') * scale_h), 3)
-                right  = round( min(orig_shapes[i][1], np.floor(right + 0.5).astype('int32') * scale_w), 3)
-                label  = self.class_map[int(label_id)]
-                self.logger.debug(f"\tBox {b:2} - {label:20}: {score:1.3f} @ {(top, left)},\t {(bottom, right)}")
+                top    = round( max(0, np.floor(top + 0.5).astype('int32')), 3)
+                left   = round( max(0, np.floor(left + 0.5).astype('int32')), 3)
+                bottom = round( min(orig_shapes[i][0], np.floor(bottom + 0.5).astype('int32')), 3)
+                right  = round( min(orig_shapes[i][1], np.floor(right + 0.5).astype('int32')), 3)
+                label  = self.label_map[int(label_id)]
+                self.logger.debug(f"\tBox {idx:2} - {label:20}: {score:1.3f} @ {(top, left)},\t {(bottom, right)}")
                 item_predictions = ml.predictions_utils.add_box_prediction(
                     left=left, top=top, right=right, bottom=bottom,
                     score=score, label=label, adapter=self,
@@ -208,21 +204,102 @@ class ModelAdapter(dl.BaseModelAdapter):
         batch_size = configuration.get('batch_size', 64)
         input_size = configuration.get('input_size', 256)
 
-        if os.path.isfile(self.hyp_yaml_fname):
-            hyp_full_path = self.hyp_yaml_fname
+        if os.path.isfile(self.configuration['hyp_yaml_fname']):
+            hyp_full_path = self.configuration['hyp_yaml_fname']
         else:
-            hyp_full_path = os.path.join(os.path.dirname(__file__), self.hyp_yaml_fname)
+            hyp_full_path = os.path.join(os.path.dirname(__file__), self.configuration['hyp_yaml_fname'])
         hyp = yaml.safe_load(open(hyp_full_path, 'r'))
-        opt = self._create_opt(data_path=data_path, dump_path=output_path, **kwargs)
+        opt = self._create_opt(data_path=data_path, output_path=output_path, **kwargs)
         # Make sure opt.weights has the exact model file as it will load from there
 
-        train_results = train_script.train(hyp, opt, self.device)
+        train_results = train_script.train(hyp, opt, self.device, callbacks=Callbacks())
         self.logger.info('Train Finished. Actual output path: {}'.format(opt.save_dir))
 
         # load best model weights
         best_model_wts = os.path.join(opt.save_dir, 'weights', 'best.pt')
-        self.model = torch.load(best_model_wts)['model']
+        self.model = torch.load(best_model_wts, map_location=self.device)['model']
         # self.model.load_state_dict(best_model_wts)
+
+    def convert_from_dtlpy(self, data_path, **kwargs):
+        """ Convert Dataloop structure data to model structured
+
+            Virtual method - need to implement
+
+            e.g. take dlp dir structure and construct annotation file
+
+        :param data_path: `str` local File System directory path where we already downloaded the data from dataloop platform
+        :return:
+        """
+        label_to_id = {v: k for k, v in self.label_map.items()}  # self.label_map {id: name}
+        # White / Black list option to use
+        white_list = kwargs.get('white_list', False)  # white list is the verified annotations labels to work with
+        black_list = kwargs.get('black_list', False)  # black list is the illegal annotations labels to work with
+        empty_prob = kwargs.get('empty_prob', 0)  # do we constraint number of empty images
+
+        for partiton in dl.SnapshotPartitionType:
+            in_labels_path = os.path.join(data_path, partiton, 'json')
+            in_images_path = os.path.join(data_path, partiton, 'items')
+
+            # Train - Val split
+            labels_path = os.path.join(data_path, partiton, 'labels')
+            images_path = os.path.join(data_path, partiton, 'images')
+
+            # TODO: currently the function is called inside partition loop - need to fix
+            if os.path.isdir(labels_path):
+                if len(os.listdir(labels_path)) > 0:
+                    self.logger.warning('dir {} already been processed. Skipping'.format(labels_path))
+                    continue
+            else:
+                os.makedirs(labels_path, exist_ok=True)
+                os.makedirs(images_path, exist_ok=True)
+
+            # set the list of files to parse and convert
+            json_filepaths = list()
+            for path, subdirs, files in os.walk(in_labels_path):
+                # break
+                for fname in files:
+                    filename, ext = os.path.splitext(fname)
+                    if ext.lower() not in ['.json']:
+                        continue
+                    json_filepaths.append(os.path.join(path, fname))
+            np.random.shuffle(json_filepaths)
+
+
+            counters = {
+                'empty_items_found': 0,
+                'empty_items_discarded': 0,
+                'corrupted_cnt': 0
+            }
+            pool = ThreadPool(processes=16)
+            lock = Lock()
+            for in_json_filepath in tqdm.tqdm(json_filepaths, unit='file'):
+                pool.apply_async(func=self._parse_single_annotation_file,
+                                 args=(in_json_filepath, in_labels_path, labels_path,
+                                       in_images_path, images_path, label_to_id, counters, lock),
+                                 kwds={'white_list': white_list,
+                                       'black_list': black_list,
+                                       'empty_prob': empty_prob}
+                                 )
+            pool.close()
+            pool.join()
+            pool.terminate()
+
+
+        config_path = os.path.join(data_path, self.configuration['data_yaml_fname'])
+        self.create_yaml(
+            train_path=os.path.join(data_path, dl.SnapshotPartitionType.TRAIN),
+            val_path=os.path.join(data_path, dl.SnapshotPartitionType.VALIDATION),
+            classes=list(label_to_id.keys()),
+            config_path=config_path,
+        )
+
+        train_cnt = sum([len(files) for r, d, files in os.walk(data_path+'/train/labels')])
+        val_cnt = sum([len(files) for r, d, files in os.walk(data_path+'/validation/labels')])
+
+        msg = "Finished converting the data. Creating config file: {!r}. ".format(config_path) + \
+              "\nLabels dict {}.\nlabel_map   {}".format(label_to_id, self.label_map) + \
+              "\nVal count   : {}\nTrain count: {}".format(val_cnt, train_cnt)
+        self.logger.info(msg)
 
     def load_old__(self, local_path, **kwargs):
         """ Loads model and populates self.model with a `runnable` model
@@ -473,6 +550,7 @@ class ModelAdapter(dl.BaseModelAdapter):
             else:
                 item_metadata = data['metadata']
 
+            # partition = item_metadata['system']['snapshotPartition']
             img_width, img_height = item_metadata['system']['width'], item_metadata['system']['height']
 
             output_txt_filepath = in_json_filepath.replace(in_labels_path, labels_path).replace('.json', '.txt')
@@ -546,23 +624,24 @@ class ModelAdapter(dl.BaseModelAdapter):
         with open(config_path, 'w') as f:
             f.write(yaml_str)
 
-    def _create_opt(self, data_path, dump_path, **kwargs):
+    def _create_opt(self, data_path, output_path, **kwargs):
         import argparse
-        data_yaml_path = os.path.join(data_path, self.data_yaml_fname)
-        if os.path.isdir(dump_path):
-            dump_path = increment_path(Path(dump_path)).as_posix()
+        data_yaml_path = os.path.join(data_path, self.configuration['data_yaml_fname'])
+        if os.path.isdir(output_path):
+            output_path = increment_path(Path(output_path)).as_posix()
 
         parser = argparse.ArgumentParser()
-        parser.add_argument('--save_dir',          type=str, default=dump_path, help='path to save the results')
-        parser.add_argument('--epochs',            type=int, default=kwargs.get('epochs', 100))  # 300
-        parser.add_argument('--batch-size',        type=int, default=kwargs.get('batch', 4), help='batch size for all GPUs')
+        parser.add_argument('--save_dir',          type=str, default=output_path, help='path to save the results')
+        parser.add_argument('--epochs',            type=int, default=self.configuration.get('epochs', 100))  # 300
+        parser.add_argument('--batch-size',        type=int, default=self.configuration.get('batch', 4), help='batch size for all GPUs')
         # parser.add_argument('--total-batch-size',  type=int, default=16, help='total batch size for all GPUs')
-        parser.add_argument('--weights',           type=str, default=self.weights_filename, help='initial weights path')
+        parser.add_argument('--weights',           type=str, default=self.configuration['model_fname'], help='initial weights file name')
+        parser.add_argument('--imgsz', '--img', '--img-size', type=int, default=max(self.configuration['input_shape']), help='train, val image size (pixels)')
         parser.add_argument('--data',              type=str, default=data_yaml_path, help='dlp_data.yaml path')
+
         parser.add_argument('--global_rank',       type=int, default=-1, help='DDP parameter, do not modify')
         parser.add_argument('--local_rank',        type=int, default=-1, help='DDP parameter, do not modify')
         parser.add_argument('--single-cls', action='store_true', help='train multi-class data as single-class')
-        parser.add_argument('--imgsz', '--img', '--img-size', type=int, default=max(self.input_shape), help='train, val image size (pixels)')
 
         parser.add_argument('--evolve',  type=int, nargs='?', const=300, help='evolve hyperparameters for x generations')
         parser.add_argument('--noval',   action='store_true', help='only validate final epoch')
@@ -576,12 +655,13 @@ class ModelAdapter(dl.BaseModelAdapter):
         parser.add_argument('--sync-bn', action='store_true', help='use SyncBatchNorm, only available in DDP mode')
         parser.add_argument('--adam', action='store_true', help='use torch.optim.Adam() optimizer')
         parser.add_argument('--multi-scale', action='store_true', help='vary img-size +/- 50%%')
-        parser.add_argument('--cache-images', action='store_true', help='cache images for faster training')
+        parser.add_argument('--cache', type=str, nargs='?', const='ram', help='--cache images in "ram" (default) or "disk"')
         parser.add_argument('--quad', action='store_true', help='quad dataloader')
         parser.add_argument('--linear-lr', action='store_true', help='linear LR')
         parser.add_argument('--label-smoothing', type=float, default=0.0, help='Label smoothing epsilon')
         parser.add_argument('--image-weights', action='store_true', help='use weighted image selection for training')
         parser.add_argument('--save_period', type=int, default=-1, help='Log model after every "save_period" epoch')
+        parser.add_argument('--patience', type=int, default=100, help='EarlyStopping patience (epochs without improvement)')
 
         # NEW
         # parser.add_argument('--hyp', type=str, default='data/hyps/hyp.scratch.yaml', help='hyperparameters path')
@@ -600,6 +680,15 @@ class ModelAdapter(dl.BaseModelAdapter):
         opt = parser.parse_known_args()
         return opt[0]
 
+    def _set_device(self, device_name='cuda:0'):
+        """
+        Set the device and half properties for the adapter
+        """
+        if not torch.cuda.is_available():
+            device_name = 'cpu'
+        self.device = torch.device(device_name)
+        self.half = self.device.type != 'cpu'  # half precision only supported on CUDA
+
 
 def _get_coco_labels_json():
     return ['person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus', 'train', 'truck', 'boat', 'traffic light',
@@ -616,7 +705,7 @@ def model_and_snapshot_creation(env='prod', yolo_size='small'):
     dl.setenv(env)
     project = dl.projects.get('DataloopModels')
 
-    codebase = dl.GitCodebase(git_url='https://github.com/dataloop-ai/yolov5.git', git_tag='torch_adapter') #  TODO:  git_tag='master')
+    codebase = dl.GitCodebase(git_url='https://github.com/dataloop-ai/yolov5.git', git_tag='torch_adapter') #  TODO:  git_tag='master') 'v5.0' or 6.0
     model = project.models.create(model_name='yolo-v5',
                                   description='Global Dataloop Yolo V5 implemented in pytorch',
                                   output_type=dl.AnnotationType.BOX,
