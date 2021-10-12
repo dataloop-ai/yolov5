@@ -66,7 +66,7 @@ class ModelAdapter(dl.BaseModelAdapter):
         super(ModelAdapter, self).__init__(model_entity)
         self._set_device(device_name="cuda:0")
         self.label_map = {}
-        self.logger.info('Model Adapter instance created. Torch_adapter branch')
+        self.logger.info('Model Adapter instance created. torch_adapter_v6.0 branch')
         # FIXME: remove _defaults, create a flow for setting new labels, tackle the 'inplace' inconsistency
         self.logger.info("This version is Newer than 11-Oct-2021")
 
@@ -706,7 +706,7 @@ def model_and_snapshot_creation(env='prod', yolo_size='small'):
     dl.setenv(env)
     project = dl.projects.get('DataloopModels')
 
-    codebase = dl.GitCodebase(git_url='https://github.com/dataloop-ai/yolov5.git', git_tag='torch_adapter') #  TODO:  git_tag='master') 'v5.0' or 6.0
+    codebase = dl.GitCodebase(git_url='https://github.com/dataloop-ai/yolov5.git', git_tag='torch_adapter_v6.0') #  TODO:  git_tag='master') 'v5.0' or 6.0
     model = project.models.create(model_name='yolo-v5',
                                   description='Global Dataloop Yolo V5 implemented in pytorch',
                                   output_type=dl.AnnotationType.BOX,
