@@ -4,6 +4,7 @@ Plotting utils
 """
 
 import math
+import os
 from copy import copy
 from pathlib import Path
 
@@ -16,11 +17,12 @@ import seaborn as sn
 import torch
 from PIL import Image, ImageDraw, ImageFont
 
-from utils.general import user_config_dir, is_ascii, xywh2xyxy, xyxy2xywh
+from utils.general import user_config_dir, is_ascii, is_chinese, xywh2xyxy, xyxy2xywh
 from utils.metrics import fitness
 
 # Settings
 CONFIG_DIR = user_config_dir()  # Ultralytics settings dir
+RANK = int(os.getenv('RANK', -1))
 matplotlib.rc('font', **{'size': 11})
 matplotlib.use('Agg')  # for writing to files only
 
@@ -55,22 +57,23 @@ def check_font(font='Arial.ttf', size=10):
     except Exception as e:  # download if missing
         url = "https://ultralytics.com/assets/" + font.name
         print(f'Downloading {url} to {font}...')
-        torch.hub.download_url_to_file(url, str(font))
+        torch.hub.download_url_to_file(url, str(font), progress=False)
         return ImageFont.truetype(str(font), size)
 
 
 class Annotator:
-    check_font()  # download TTF if necessary
+    if RANK in (-1, 0):
+        check_font()  # download TTF if necessary
 
     # YOLOv5 Annotator for train/val mosaics and jpgs and detect/hub inference annotations
-    def __init__(self, im, line_width=None, font_size=None, font='Arial.ttf', pil=True):
+    def __init__(self, im, line_width=None, font_size=None, font='Arial.ttf', pil=False, example='abc'):
         assert im.data.contiguous, 'Image not contiguous. Apply np.ascontiguousarray(im) to Annotator() input images.'
-        self.pil = pil
+        self.pil = pil or not is_ascii(example) or is_chinese(example)
         if self.pil:  # use PIL
             self.im = im if isinstance(im, Image.Image) else Image.fromarray(im)
             self.draw = ImageDraw.Draw(self.im)
-            self.font = check_font(font, size=font_size or max(round(sum(self.im.size) / 2 * 0.035), 12))
-            self.fh = self.font.getsize('a')[1] - 3  # font height
+            self.font = check_font(font='Arial.Unicode.ttf' if is_chinese(example) else font,
+                                   size=font_size or max(round(sum(self.im.size) / 2 * 0.035), 12))
         else:  # use cv2
             self.im = im
         self.lw = line_width or max(round(sum(im.shape) / 2 * 0.003), 2)  # line width
@@ -80,19 +83,25 @@ class Annotator:
         if self.pil or not is_ascii(label):
             self.draw.rectangle(box, width=self.lw, outline=color)  # box
             if label:
-                w = self.font.getsize(label)[0]  # text width
-                self.draw.rectangle([box[0], box[1] - self.fh, box[0] + w + 1, box[1] + 1], fill=color)
-                self.draw.text((box[0], box[1]), label, fill=txt_color, font=self.font, anchor='ls')
+                w, h = self.font.getsize(label)  # text width, height
+                outside = box[1] - h >= 0  # label fits outside box
+                self.draw.rectangle([box[0],
+                                     box[1] - h if outside else box[1],
+                                     box[0] + w + 1,
+                                     box[1] + 1 if outside else box[1] + h + 1], fill=color)
+                # self.draw.text((box[0], box[1]), label, fill=txt_color, font=self.font, anchor='ls')  # for PIL>8.0
+                self.draw.text((box[0], box[1] - h if outside else box[1]), label, fill=txt_color, font=self.font)
         else:  # cv2
-            c1, c2 = (int(box[0]), int(box[1])), (int(box[2]), int(box[3]))
-            cv2.rectangle(self.im, c1, c2, color, thickness=self.lw, lineType=cv2.LINE_AA)
+            p1, p2 = (int(box[0]), int(box[1])), (int(box[2]), int(box[3]))
+            cv2.rectangle(self.im, p1, p2, color, thickness=self.lw, lineType=cv2.LINE_AA)
             if label:
                 tf = max(self.lw - 1, 1)  # font thickness
-                w, h = cv2.getTextSize(label, 0, fontScale=self.lw / 3, thickness=tf)[0]
-                c2 = c1[0] + w, c1[1] - h - 3
-                cv2.rectangle(self.im, c1, c2, color, -1, cv2.LINE_AA)  # filled
-                cv2.putText(self.im, label, (c1[0], c1[1] - 2), 0, self.lw / 3, txt_color, thickness=tf,
-                            lineType=cv2.LINE_AA)
+                w, h = cv2.getTextSize(label, 0, fontScale=self.lw / 3, thickness=tf)[0]  # text width, height
+                outside = p1[1] - h - 3 >= 0  # label fits outside box
+                p2 = p1[0] + w, p1[1] - h - 3 if outside else p1[1] + h + 3
+                cv2.rectangle(self.im, p1, p2, color, -1, cv2.LINE_AA)  # filled
+                cv2.putText(self.im, label, (p1[0], p1[1] - 2 if outside else p1[1] + h + 2), 0, self.lw / 3, txt_color,
+                            thickness=tf, lineType=cv2.LINE_AA)
 
     def rectangle(self, xy, fill=None, outline=None, width=1):
         # Add rectangle to image (PIL-only)
@@ -169,7 +178,7 @@ def plot_images(images, targets, paths=None, fname='images.jpg', names=None, max
 
     # Annotate
     fs = int((h + w) * ns * 0.01)  # font size
-    annotator = Annotator(mosaic, line_width=round(fs / 10), font_size=fs)
+    annotator = Annotator(mosaic, line_width=round(fs / 10), font_size=fs, pil=True)
     for i in range(i + 1):
         x, y = int(w * (i // ns)), int(h * (i % ns))  # block origin
         annotator.rectangle([x, y, x + w, y + h], None, (255, 255, 255), width=2)  # borders
@@ -247,15 +256,16 @@ def plot_targets_txt():  # from utils.plots import *; plot_targets_txt()
     plt.savefig('targets.jpg', dpi=200)
 
 
-def plot_study_txt(path='', x=None):  # from utils.plots import *; plot_study_txt()
-    # Plot study.txt generated by val.py
+def plot_val_study(file='', dir='', x=None):  # from utils.plots import *; plot_val_study()
+    # Plot file=study.txt generated by val.py (or plot all study*.txt in dir)
+    save_dir = Path(file).parent if file else Path(dir)
     plot2 = False  # plot additional results
     if plot2:
         ax = plt.subplots(2, 4, figsize=(10, 6), tight_layout=True)[1].ravel()
 
     fig2, ax2 = plt.subplots(1, 1, figsize=(8, 4), tight_layout=True)
-    # for f in [Path(path) / f'study_coco_{x}.txt' for x in ['yolov5s6', 'yolov5m6', 'yolov5l6', 'yolov5x6']]:
-    for f in sorted(Path(path).glob('study*.txt')):
+    # for f in [save_dir / f'study_coco_{x}.txt' for x in ['yolov5n6', 'yolov5s6', 'yolov5m6', 'yolov5l6', 'yolov5x6']]:
+    for f in sorted(save_dir.glob('study*.txt')):
         y = np.loadtxt(f, dtype=np.float32, usecols=[0, 1, 2, 3, 7, 8, 9], ndmin=2).T
         x = np.arange(y.shape[1]) if x is None else np.array(x)
         if plot2:
@@ -274,11 +284,13 @@ def plot_study_txt(path='', x=None):  # from utils.plots import *; plot_study_tx
     ax2.grid(alpha=0.2)
     ax2.set_yticks(np.arange(20, 60, 5))
     ax2.set_xlim(0, 57)
-    ax2.set_ylim(30, 55)
+    ax2.set_ylim(25, 55)
     ax2.set_xlabel('GPU Speed (ms/img)')
     ax2.set_ylabel('COCO AP val')
     ax2.legend(loc='lower right')
-    plt.savefig(str(Path(path).name) + '.png', dpi=300)
+    f = save_dir / 'study.png'
+    print(f'Saving {f}...')
+    plt.savefig(f, dpi=300)
 
 
 def plot_labels(labels, names=(), save_dir=Path('')):
