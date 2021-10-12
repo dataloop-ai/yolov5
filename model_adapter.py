@@ -66,7 +66,9 @@ class ModelAdapter(dl.BaseModelAdapter):
         super(ModelAdapter, self).__init__(model_entity)
         self._set_device(device_name="cuda:0")
         self.label_map = {}
-        self.logger.info('Model Adapter instance created. Torch_adpter branch')
+        self.logger.info('Model Adapter instance created. Torch_adapter branch')
+        # FIXME: remove _defaults, create a flow for setting new labels, tackle the 'inplace' inconsistency
+        self.logger.info("This version is Newer than 11-Oct-2021")
 
     # ===============================
     # NEED TO IMPLEMENT THESE METHODS
@@ -202,7 +204,6 @@ class ModelAdapter(dl.BaseModelAdapter):
         configuration.update(self.snapshot.configuration)
         num_epochs = configuration.get('num_epochs', 10)
         batch_size = configuration.get('batch_size', 64)
-        input_size = configuration.get('input_size', 256)
 
         if os.path.isfile(self.configuration['hyp_yaml_fname']):
             hyp_full_path = self.configuration['hyp_yaml_fname']
@@ -632,8 +633,8 @@ class ModelAdapter(dl.BaseModelAdapter):
 
         parser = argparse.ArgumentParser()
         parser.add_argument('--save_dir',          type=str, default=output_path, help='path to save the results')
-        parser.add_argument('--epochs',            type=int, default=self.configuration.get('epochs', 100))  # 300
-        parser.add_argument('--batch-size',        type=int, default=self.configuration.get('batch', 4), help='batch size for all GPUs')
+        parser.add_argument('--epochs',            type=int, default=self.configuration.get('num_epochs', 100))  # 300
+        parser.add_argument('--batch-size',        type=int, default=self.configuration.get('batch_size', 4), help='batch size for all GPUs')
         # parser.add_argument('--total-batch-size',  type=int, default=16, help='total batch size for all GPUs')
         parser.add_argument('--weights',           type=str, default=self.configuration['model_fname'], help='initial weights file name')
         parser.add_argument('--imgsz', '--img', '--img-size', type=int, default=max(self.configuration['input_shape']), help='train, val image size (pixels)')
@@ -716,19 +717,27 @@ def model_and_snapshot_creation(env='prod', yolo_size='small'):
                                   )
 
     # TODO: can we add two model arc in one dir - yolov5l, yolov5s
+    # Select the specific arch and gcs bucket
+    if yolo_size == 'small':
+        gcs_prefix = 'yolo-v5-small'
+    elif yolo_size == 'large':
+        gcs_prefix = 'yolo-v5'
+    else:
+        raise RuntimeError('yolo_size {!r} - un-supported, choose "small" or "large"'.format(yolo_size))
+
     abbv = yolo_size[0]
 
     bucket = dl.buckets.create(dl.BucketType.GCS,
                                gcs_project_name='viewo-main',
                                gcs_bucket_name='model-mgmt-snapshots',
-                               gcs_prefix='yolo-v5-small')
+                               gcs_prefix=gcs_prefix)
     snapshot = model.snapshots.create(snapshot_name='pretrained-yolo-v5',
-                                      description='yolo v5 small arch, pretrained on ms-coco',
+                                      description='yolo v5 {} arch, pretrained on ms-coco'.format(yolo_size),
                                       tags=['pretrained', 'ms-coco'],
                                       dataset_id=None,
                                       # is_global=True,
                                       # status='trained',
-                                      configuration={'weights_filename': 'yolov5s.pt',
+                                      configuration={'weights_filename': 'yolov5{}.pt'.format(abbv),
                                                      # 'classes_filename': 'classes.json'
                                                      },
                                       project_id=project.id,
