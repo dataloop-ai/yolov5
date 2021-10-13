@@ -10,7 +10,6 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 import torchvision
 from torchvision import transforms
-# from torchvision.transforms.functional import
 from PIL import Image
 import tqdm
 import json
@@ -20,9 +19,10 @@ import yaml
 from multiprocessing.pool import ThreadPool
 from multiprocessing import Lock
 import traceback
+# Package specific imports
 from utils.general import increment_path, non_max_suppression
 from utils.callbacks import Callbacks
-
+from utils.augmentations import letterbox
 
 
 class ModelAdapter(dl.BaseModelAdapter):
@@ -67,9 +67,9 @@ class ModelAdapter(dl.BaseModelAdapter):
         self._set_device(device_name="cuda:0")
         self.label_map = {}
         self.logger.info('Model Adapter instance created. torch_adapter_v6.0 branch')
-        # FIXME: remove _defaults, create a flow for setting new labels, tackle the 'inplace' inconsistency
-        #                save the names to the model,
+        # FIXME: remove _defaults, create a flow for setting new labels
         #                using single value in the input_shape
+        #                Fix sizes issues - seems ok to use larger size in inference
         self.logger.info("This version is Newer than 13-Oct-2021")
 
     # ===============================
@@ -134,11 +134,22 @@ class ModelAdapter(dl.BaseModelAdapter):
                 transforms.ToPILImage(),
                 transforms.Resize(self.configuration['input_shape'][::-1]),
                 # Resize expect width height while self.input_shape is in hxw
+                # TODO: consider using letter box (with max input shape - as in train) + letterbox works on np images
                 transforms.ToTensor(),
                 self.halfTransform(self.half),   # uint8 to fp16/32
                 # transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),  # TODO: the resutls are more consistent when not using the normalize
             ]
         )
+        letter_transform = transforms.Compose(
+            [
+                self.letterBoxTransform(new_shape=self.configuration['input_shape'][::-1], verbose=True),   # shape in HW
+                transforms.ToTensor(),
+                self.halfTransform(self.half),   # uint8 to fp16/32
+                # transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),  # TODO: the resutls are more consistent when not using the normalize
+            ]
+        )
+
+
         # TODO: test if new version support these edgecases:
         #   1) gray scale images -> stack to 3 channesl
         #   2) alpha channel -> removes it
@@ -207,10 +218,10 @@ class ModelAdapter(dl.BaseModelAdapter):
         # TODO: set the name of the labels to the model
         # Use opt.data....
         import train as train_script
-        configuration = self.configuration
-        configuration.update(self.snapshot.configuration)
-        num_epochs = configuration.get('num_epochs', 10)
-        batch_size = configuration.get('batch_size', 64)
+        # configuration = self.configuration
+        # configuration.update(self.snapshot.configuration)
+        # num_epochs = configuration.get('num_epochs', 10)
+        # batch_size = configuration.get('batch_size', 64)
 
         if os.path.isfile(self.configuration['hyp_yaml_fname']):
             hyp_full_path = self.configuration['hyp_yaml_fname']
@@ -218,6 +229,9 @@ class ModelAdapter(dl.BaseModelAdapter):
             hyp_full_path = os.path.join(os.path.dirname(__file__), self.configuration['hyp_yaml_fname'])
         hyp = yaml.safe_load(open(hyp_full_path, 'r'))
         opt = self._create_opt(data_path=data_path, output_path=output_path, **kwargs)
+        self.logger.info("Created OPT configuration: batch_size {b};  num_epochs {num} image_size {sz}".
+                         format(b=opt.batch_size, num=opt.epochs, sz=opt.imgsz))
+        self.logger.debug("OPT config full debug: {}".format(opt))
         # Make sure opt.weights has the exact model file as it will load from there
 
         train_results = train_script.train(hyp, opt, self.device, callbacks=Callbacks())
@@ -226,13 +240,6 @@ class ModelAdapter(dl.BaseModelAdapter):
         # load best model weights
         best_model_wts = os.path.join(opt.save_dir, 'weights', 'best.pt')
         self.model = torch.load(best_model_wts, map_location=self.device)['model']
-
-        # TEST MODEL NAMES - replace?!
-        data_yaml_path = os.path.join(data_path, self.configuration['data_yaml_fname'])
-        data = yaml.safe_load(open(data_yaml_path, 'r'))
-        self.logger.debug('IDLE... Replacing model names: {src} -> {dst}'.format(src=self.model.names, dst=data['names']))
-        # self.model.names = data['names']
-
         # self.model.load_state_dict(best_model_wts)
 
     def convert_from_dtlpy(self, data_path, **kwargs):
@@ -715,6 +722,21 @@ class ModelAdapter(dl.BaseModelAdapter):
                 return sample.half()
             else:
                 return sample.float()
+
+    class letterBoxTransform(object):
+        """ preforms letterbox reshape - works on numpy inputs ==> HW"""
+        def __init__(self, new_shape, verbose=False):
+            self.new_shape = new_shape
+            self.verobse = verbose
+
+        def __call__(self, img: np.ndarray):
+            im, ratio, (dw, dh) = letterbox(im=img,
+                                            new_shape=self.new_shape,
+                                            )
+            if self.verbose:
+                print(f"letter box reshapes {img.shape} -> {im.shape} (ratio: {ratio},  dw:{dw}-dh{dh})")
+            return im
+
 
 
 def _get_coco_labels_json():
