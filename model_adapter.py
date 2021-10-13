@@ -68,6 +68,8 @@ class ModelAdapter(dl.BaseModelAdapter):
         self.label_map = {}
         self.logger.info('Model Adapter instance created. torch_adapter_v6.0 branch')
         # FIXME: remove _defaults, create a flow for setting new labels, tackle the 'inplace' inconsistency
+        #                save the names to the model, use halfTransform
+        #                using single value in the input_shape
         self.logger.info("This version is Newer than 13-Oct-2021")
 
     # ===============================
@@ -133,6 +135,7 @@ class ModelAdapter(dl.BaseModelAdapter):
                 transforms.Resize(self.configuration['input_shape'][::-1]),
                 # Resize expect width height while self.input_shape is in hxw
                 transforms.ToTensor(),
+                # self.halfTransform(self.half),
                 # transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),  # TODO: the resutls are more consistent when not using the normalize
             ]
         )
@@ -149,6 +152,7 @@ class ModelAdapter(dl.BaseModelAdapter):
         batch_tensor = batch_tensor.half() if self.half else batch_tensor.float()  # uint8 to fp16/32
 
         # Inference
+        self.logger.debug("{n!r} inference, batch shape {s} ({t!r})".format(n=self.model_name, s=batch_tensor.shape, t=batch_tensor.type))
         result = self.model(batch_tensor, augment=False)
         dets = result[0]
         # Apply NMS
@@ -224,6 +228,13 @@ class ModelAdapter(dl.BaseModelAdapter):
         # load best model weights
         best_model_wts = os.path.join(opt.save_dir, 'weights', 'best.pt')
         self.model = torch.load(best_model_wts, map_location=self.device)['model']
+
+        # TEST MODEL NAMES - replace?!
+        data_yaml_path = os.path.join(data_path, self.configuration['data_yaml_fname'])
+        data = yaml.safe_load(open(data_yaml_path, 'r'))
+        self.logger.debug('IDLE... Replacing model names: {src} -> {dst}'.format(src=self.model.names, dst=data['names']))
+        # self.model.names = data['names']
+
         # self.model.load_state_dict(best_model_wts)
 
     def convert_from_dtlpy(self, data_path, **kwargs):
@@ -694,6 +705,18 @@ class ModelAdapter(dl.BaseModelAdapter):
             device_name = 'cpu'
         self.device = torch.device(device_name)
         self.half = self.device.type != 'cpu'  # half precision only supported on CUDA
+
+    class halfTransform(object):
+        """ preforms tensor.half if the the model uses half tensors"""
+        def __init__(self, is_half):
+            self.is_half = is_half
+
+        def __call__(self, sample):
+            # uint8 to fp16/32
+            if self.is_half:
+                sample.half()
+            else:
+                sample.float()
 
 
 def _get_coco_labels_json():
