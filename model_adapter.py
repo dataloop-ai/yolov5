@@ -36,7 +36,7 @@ class ModelAdapter(dl.BaseModelAdapter):
     """
 
     configuration = {
-        'input_shape': (480, 640),
+        'input_shape': (320, 640),  #  H W (480, 640),
         'model_fname': 'yolov5l.pt',
         # Detection configs
         'agnostic_nms': False,  # help='class-agnostic NMS')
@@ -68,7 +68,7 @@ class ModelAdapter(dl.BaseModelAdapter):
         self.label_map = {}
         self.logger.info('Model Adapter instance created. torch_adapter_v6.0 branch')
         # FIXME: remove _defaults, create a flow for setting new labels, tackle the 'inplace' inconsistency
-        self.logger.info("This version is Newer than 11-Oct-2021")
+        self.logger.info("This version is Newer than 13-Oct-2021")
 
     # ===============================
     # NEED TO IMPLEMENT THESE METHODS
@@ -100,6 +100,7 @@ class ModelAdapter(dl.BaseModelAdapter):
             self.model = model
 
         self.model = self.model.autoshape()  # for file/URI/PIL/cv2/np inputs and NMS
+        self.model.to(self.device)
 
         # load classes
         self.label_map = {k: v for k, v in enumerate(self.model.names if hasattr(self.model, 'names') else self.model.module.names)}
@@ -201,6 +202,8 @@ class ModelAdapter(dl.BaseModelAdapter):
         :param data_path: `str` local File System path to where the data was downloaded and converted at
         :param output_path: `str` local File System path where to dump training mid-results (checkpoints, logs...)
         """
+        # TODO: set the name of the labels to the model
+        # Use opt.data....
         import train as train_script
         configuration = self.configuration
         configuration.update(self.snapshot.configuration)
