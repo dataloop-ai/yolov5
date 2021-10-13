@@ -99,6 +99,8 @@ class ModelAdapter(dl.BaseModelAdapter):
         else:
             self.model = model
 
+        self.model = model.autoshape()  # for file/URI/PIL/cv2/np inputs and NMS
+
         # load classes
         self.label_map = {k: v for k, v in enumerate(self.model.names if hasattr(self.model, 'names') else self.model.module.names)}
         self.model.to(self.device)  # TODO: TEST THIS, i had some issues with this command in yolo v5 - for GPU
