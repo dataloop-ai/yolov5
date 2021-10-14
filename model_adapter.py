@@ -209,7 +209,7 @@ class ModelAdapter(dl.BaseModelAdapter):
         self.model.conf = min_score = kwargs.get('min_score', 0.25)  # NMS confidence threshold
         self.model.iou = self.configuration['iou_thres']  # NMS IoU threshold
         self.logger.debug("AutoShape model NMS params updated, min_conf {}, min_iou {}".format(self.model.conf, self.model.iou))
-        results = self.model(batch)
+        results = self.model([im for im in batch])
         self.logger.debug("{n!r} inference with autoshape model, batch shape {s}".
                           format(n=self.model_name, s=results.s,))
 
@@ -226,6 +226,7 @@ class ModelAdapter(dl.BaseModelAdapter):
                     collection=item_predictions
                 )
             predictions.append(item_predictions)
+        return predictions
 
     def save(self, local_path, **kwargs):
         """
