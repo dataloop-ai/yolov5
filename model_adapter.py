@@ -140,7 +140,7 @@ class ModelAdapter(dl.BaseModelAdapter):
         img_transform = transforms.Compose(
             [
                 transforms.ToPILImage(),
-                transforms.Resize(self.configuration['input_shape'][::-1]),
+                transforms.Resize(self.configuration['input_shape']),   # [::-1]
                 # Resize expect width height while self.input_shape is in hxw
                 # TODO: consider using letter box (with max input shape - as in train) + letterbox works on np images
                 transforms.ToTensor(),
