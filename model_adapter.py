@@ -127,6 +127,14 @@ class ModelAdapter(dl.BaseModelAdapter):
         :param batch: `np.ndarray`
         :return `list[dl.AnnotationCollection]` prediction results by len(batch)
         """
+        # return self.predict_w_tensor(batch=batch, **kwargs)  # TODO: fix the scales - should run faster...
+        return self.predict_w_autoshape(batch=batch, **kwargs)
+
+    def predict_w_tensor(self, batch, **kwargs):
+        """ Model inference (predictions) on batch of image
+        :param batch: `np.ndarray`
+        :return `list[dl.AnnotationCollection]` prediction results by len(batch)
+        """
 
         min_score = kwargs.get('min_score', 0.4)
         img_transform = transforms.Compose(
@@ -190,6 +198,34 @@ class ModelAdapter(dl.BaseModelAdapter):
             predictions.append(item_predictions)
 
         return predictions
+
+    def predict_w_autoshape(self, batch, **kwargs):
+        """ Model inference (predictions) on batch of image
+            Uses the autoshape model which runs preprocess automatically based on the input.
+            does not uses hand made transforms
+        :param batch: `np.ndarray`
+        :return `list[dl.AnnotationCollection]` prediction results by len(batch)
+        """
+        self.model.conf = min_score = kwargs.get('min_score', 0.25)  # NMS confidence threshold
+        self.model.iou = self.configuration['iou_thres']  # NMS IoU threshold
+        self.logger.debug("AutoShape model NMS params updated, min_conf {}, min_iou {}".format(self.model.conf, self.model.iou))
+        results = self.model(batch)
+        self.logger.debug("{n!r} inference with autoshape model, batch shape {s}".
+                          format(n=self.model_name, s=results.s,))
+
+        predictions = []
+        for i in range(len(batch)):
+            item_detections = results.pred[i].detach().cpu().numpy()  # xyxy, conf, class
+            item_predictions = ml.predictions_utils.create_collection()
+            for idx, (left, top, right, bottom, score, label_id) in enumerate(item_detections):
+                label = self.label_map[int(label_id)]
+                self.logger.debug(f"\tBox {idx:2} - {label:20}: {score:1.3f} @ {(top, left)},\t {(bottom, right)}")
+                item_predictions = ml.predictions_utils.add_box_prediction(
+                    left=left, top=top, right=right, bottom=bottom,
+                    score=score, label=label, adapter=self,
+                    collection=item_predictions
+                )
+            predictions.append(item_predictions)
 
     def save(self, local_path, **kwargs):
         """
