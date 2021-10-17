@@ -103,6 +103,8 @@ class ModelAdapter(dl.BaseModelAdapter):
 
         self.model = self.model.autoshape()  # for file/URI/PIL/cv2/np inputs and NMS
         self.model.to(self.device)
+        if self.device.type == 'cpu':
+            self.model.float()  # Default model is trained with GPU  as a Half tyep tensor
 
         # load classes
         self.label_map = {k: v for k, v in enumerate(self.model.names if hasattr(self.model, 'names') else self.model.module.names)}
