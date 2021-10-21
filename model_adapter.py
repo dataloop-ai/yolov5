@@ -208,9 +208,13 @@ class ModelAdapter(dl.BaseModelAdapter):
         :param batch: `np.ndarray`
         :return `list[dl.AnnotationCollection]` prediction results by len(batch)
         """
-        self.model.conf = min_score = kwargs.get('min_score', 0.25)  # NMS confidence threshold
-        self.model.iou = self.configuration['iou_thres']  # NMS IoU threshold
-        self.logger.debug("AutoShape model NMS params updated, min_conf {}, min_iou {}".format(self.model.conf, self.model.iou))
+        # Autoshape model inference params - explicit ==> from_config ==> default
+        config_min_score = self.configuration.get('min_score', 0.25)
+        self.model.conf = min_score = kwargs.get('min_score', config_min_score)
+        config_iou_thres = self.configuration.get('iou_thres', 0.45)
+        self.model.iou = kwargs.get('iou_thr', config_iou_thres)
+
+        self.logger.debug("AutoShape model NMS params updated, min_score {}, iou_thr {}".format(self.model.conf, self.model.iou))
         results = self.model([im for im in batch])
         self.logger.debug("{n!r} inference with autoshape model, batch shape {s}".
                           format(n=self.model_name, s=results.s,))
