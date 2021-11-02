@@ -70,7 +70,7 @@ class ModelAdapter(dl.BaseModelAdapter):
         # FIXME: remove _defaults, create a flow for setting new labels
         #                using single value in the input_shape
         #                Fix sizes issues - seems ok to use larger size in inference
-        self.logger.info("This version is Newer than 13-Oct-2021")
+        self.logger.debug("This version is Newer than 2-Nov-2021")
 
     # ===============================
     # NEED TO IMPLEMENT THESE METHODS
@@ -295,7 +295,11 @@ class ModelAdapter(dl.BaseModelAdapter):
         :param data_path: `str` local File System directory path where we already downloaded the data from dataloop platform
         :return:
         """
-        label_to_id = {v: k for k, v in self.label_map.items()}  # self.label_map {id: name}
+
+        # update the label_map {id: label} to the one from the snapshot
+        label_to_id = {v: k for k, v in self.snapshot.label_map.items()}  # snapshot.label_map {id: name}
+        self.label_map = self.snapshot.label_map  # TODO test if label map is okay or need to use labels...
+
         # White / Black list option to use
         white_list = kwargs.get('white_list', False)  # white list is the verified annotations labels to work with
         black_list = kwargs.get('black_list', False)  # black list is the illegal annotations labels to work with
@@ -806,23 +810,47 @@ def model_and_snapshot_creation(env='prod', yolo_size='small'):
                                   codebase=codebase,
                                   entry_point='model_adapter.py',
                                   )
+    snapshot = snapshot_creation(model, env=env, yolo_size=yolo_size)
 
+
+def model_creation(env='prod'):
+    dl.setenv(env)
+    project = dl.projects.get('DataloopModels')
+
+    codebase = dl.GitCodebase(git_url='https://github.com/dataloop-ai/yolov5.git', git_tag='torch_adapter_v6.0') #  TODO:  git_tag='master') 'v5.0' or 6.0
+    model = project.models.create(model_name='yolo-v5',
+                                  description='Global Dataloop Yolo V5 implemented in pytorch',
+                                  output_type=dl.AnnotationType.BOX,
+                                  is_global=False,  # FIXME
+                                  tags=['torch', 'yolo', 'detection'],
+                                  codebase=codebase,
+                                  entry_point='model_adapter.py',
+                                  )
+    return model
+
+def snapshot_creation(model, env='prod', yolo_size='small'):
+    dl.setenv(env)
     # TODO: can we add two model arc in one dir - yolov5l, yolov5s
+
     # Select the specific arch and gcs bucket
     if yolo_size == 'small':
-        gcs_prefix = 'yolo-v5-small'
+        gcs_prefix = 'yolo-v5-v6/small'
+        abbv = 's'
     elif yolo_size == 'large':
-        gcs_prefix = 'yolo-v5'
+        gcs_prefix = 'yolo-v5-v6/large'
+        abbv = 'l'
+    elif yolo_size == 'extra':
+        gcs_prefix = 'yolo-v5-v6/extra'
+        abbv = 'x'
     else:
-        raise RuntimeError('yolo_size {!r} - un-supported, choose "small" or "large"'.format(yolo_size))
+        raise RuntimeError('yolo_size {!r} - un-supported, choose "small" "large" or "extra" '.format(yolo_size))
 
-    abbv = yolo_size[0]
 
     bucket = dl.buckets.create(dl.BucketType.GCS,
                                gcs_project_name='viewo-main',
                                gcs_bucket_name='model-mgmt-snapshots',
                                gcs_prefix=gcs_prefix)
-    snapshot = model.snapshots.create(snapshot_name='pretrained-yolo-v5',
+    snapshot = model.snapshots.create(snapshot_name='pretrained-yolo-v5-{}'.format(yolo_size),
                                       description='yolo v5 {} arch, pretrained on ms-coco'.format(yolo_size),
                                       tags=['pretrained', 'ms-coco'],
                                       dataset_id=None,
@@ -831,7 +859,7 @@ def model_and_snapshot_creation(env='prod', yolo_size='small'):
                                       configuration={'weights_filename': 'yolov5{}.pt'.format(abbv),
                                                      # 'classes_filename': 'classes.json'
                                                      },
-                                      project_id=project.id,
+                                      project_id=model.project.id,
                                       bucket=bucket,
                                       labels=_get_coco_labels_json()
                                       )
