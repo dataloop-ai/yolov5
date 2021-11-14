@@ -16,6 +16,7 @@ import tqdm
 import json
 import time
 from pathlib import Path
+from string import Template
 import yaml
 from multiprocessing.pool import ThreadPool
 from multiprocessing import Lock
@@ -47,21 +48,6 @@ class ModelAdapter(dl.BaseModelAdapter):
         'data_yaml_fname': 'dlp_data.yaml',
         'log_level': 'DEBUG'
     }
-    _defaults = {
-        'input_shape': (480, 640),  # height, width - numpy format
-        'config_name':  'config.yaml',
-        'weights_filename': 'yolov5l.pt',
-        'weights_path': os.path.join(os.path.expandvars('$ZOO_CONFIGS'), 'yolov5_torch', 'base', 'yolov5x.pt'),
-        'conf_thres': 0.4,  # help='object confidence threshold')
-        'iou_thres': 0.5,  # help='IOU threshold for NMS')
-        'fourcc': 'mp4v',  # help='output video codec (verify ffmpeg support)')
-        'device_name': 0,  # help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
-        'classes': None,  # , help='filter by class')
-        'agnostic_nms': False,  # help='class-agnostic NMS')
-        'augment': False,  # help='augmented inference')
-        'config_deepsort': "deep_sort_pytorch/configs/deep_sort.yaml",
-
-    }
 
     def __init__(self, model_entity):
         super(ModelAdapter, self).__init__(model_entity)
@@ -69,10 +55,9 @@ class ModelAdapter(dl.BaseModelAdapter):
         self.label_map = {}
         self.__add_logger__(level=self.configuration['log_level'])
         self.logger.info('Model Adapter instance created. torch_adapter_v6.0 branch')
-        # FIXME: remove _defaults, create a flow for setting new labels
+        # FIXME: remove create a flow for setting new labels
         #                using single value in the input_shape
-        #                Fix sizes issues - seems ok to use larger size in inference
-        self.logger.debug("This version is Newer than 4-Nov-2021")
+        self.logger.debug("Adapter version from 14-Nov-2021")
 
     # ===============================
     # NEED TO IMPLEMENT THESE METHODS
@@ -372,7 +357,6 @@ class ModelAdapter(dl.BaseModelAdapter):
               "\nVal count   : {}\nTrain count: {}".format(val_cnt, train_cnt)
         self.logger.info(msg)
 
-
     def _parse_single_annotation_file(self, in_json_filepath, in_labels_path, labels_path,
                                       in_images_path, images_path, label_to_id, counters, lock,
                                       white_list=False, black_list=False, empty_prob=0):
@@ -440,23 +424,15 @@ class ModelAdapter(dl.BaseModelAdapter):
         Create the data (or is it the config) yaml
         """
 
-        yaml_str = f"""
-    # Train command: python train.py --data {config_path}/dlp_data.yaml
-    # Default dataset location is on ~/DATA folder
+        yaml_template = Path('data_yaml_template.txt')
+        template = Template(yaml_template.open('r').read())
+        yaml_str = template.substitute({
+            'train_path': train_path,
+            'val_path': val_path,
+            'nof_classes': len(classes),
+            'classes': classes
+        })
 
-    # download command/URL (optional)
-    # download: Not implemented
-
-    # train and val data as 1) directory: path/images/, 2) file: path/images.txt, or 3) list: [path1/images/, path2/images/]
-    train: {train_path}  
-    val: {val_path}
-
-    # number of classes
-    nc: {len(classes)}
-
-    # class names
-    names: {classes}
-        """
         with open(config_path, 'w') as f:
             f.write(yaml_str)
 
@@ -584,28 +560,21 @@ def _get_coco_labels_json():
             'hair drier', 'toothbrush']  # class names
 
 
-def model_and_snapshot_creation(env='prod', yolo_size='small', project:dl.Project = None):
-    dl.setenv(env)
-    if project is None:
-        project = dl.projects.get('DataloopModels')
-
-    codebase = dl.GitCodebase(git_url='https://github.com/dataloop-ai/yolov5.git', git_tag='torch_adapter_v6.0') #  TODO:  git_tag='master') 'v5.0' or 6.0
-    model = project.models.create(model_name='yolo-v5',
-                                  description='Global Dataloop Yolo V5 implemented in pytorch',
-                                  output_type=dl.AnnotationType.BOX,
-                                  is_global=False,  # FIXME
-                                  tags=['torch', 'yolo', 'detection'],
-                                  codebase=codebase,
-                                  entry_point='model_adapter.py',
-                                  )
-    snapshot = snapshot_creation(model, env=env, yolo_size=yolo_size)
-
-
-def model_creation(env='prod'):
+def model_and_snapshot_creation(env='prod', yolo_size='small'):
     dl.setenv(env)
     project = dl.projects.get('DataloopModels')
 
-    codebase = dl.GitCodebase(git_url='https://github.com/dataloop-ai/yolov5.git', git_tag='torch_adapter_v6.0') #  TODO:  git_tag='master') 'v5.0' or 6.0
+    model = model_creation(env=env, project=project)
+    snapshot = snapshot_creation(model, env=env, yolo_size=yolo_size)
+
+
+def model_creation(env='prod', project:dl.Project = None):
+    dl.setenv(env)
+
+    if project is None:
+        project = dl.projects.get('DataloopModels')
+
+    codebase = dl.GitCodebase(git_url='https://github.com/dataloop-ai/yolov5.git', git_tag='torch_adapter_v6.0') 
     model = project.models.create(model_name='yolo-v5',
                                   description='Global Dataloop Yolo V5 implemented in pytorch',
                                   output_type=dl.AnnotationType.BOX,
