@@ -578,7 +578,7 @@ def model_creation(env='prod', project:dl.Project = None):
     model = project.models.create(model_name='yolo-v5',
                                   description='Global Dataloop Yolo V5 implemented in pytorch',
                                   output_type=dl.AnnotationType.BOX,
-                                  is_global=False,  # FIXME
+                                  is_global= (project.name == 'DataloopModels'),
                                   tags=['torch', 'yolo', 'detection'],
                                   codebase=codebase,
                                   entry_point='model_adapter.py',
@@ -612,8 +612,8 @@ def snapshot_creation(model, env='prod', yolo_size='small'):
                                       description='yolo v5 {} arch, pretrained on ms-coco'.format(yolo_size),
                                       tags=['pretrained', 'ms-coco'],
                                       dataset_id=None,
-                                      # is_global=True,
-                                      # status='trained',
+                                      is_global=model.is_global,
+                                      status='trained',
                                       configuration={'weights_filename': 'yolov5{}.pt'.format(abbv),
                                                      # 'classes_filename': 'classes.json'
                                                      },
