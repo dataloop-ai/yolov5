@@ -426,7 +426,7 @@ class ModelAdapter(dl.BaseModelAdapter):
 
         yaml_template = Path('data_yaml_template.txt')
         self.logger.info("DEBUG: Yaml path: {}; full path: {}".format(yaml_template, yaml_template.absolute()))
-        self.logger.info("DEBUG: Test rel path: {}".format(Path('.data_yaml_template.txt').absolute()))
+        self.logger.info("DEBUG: Test rel path: {}".format(Path('./data_yaml_template.txt').absolute()))
 
         template = Template(yaml_template.open('r').read())
         yaml_str = template.substitute({
