@@ -424,7 +424,7 @@ class ModelAdapter(dl.BaseModelAdapter):
         Create the data (or is it the config) yaml
         """
 
-        yaml_template = Path('data_yaml_template.txt')
+        yaml_template = Path(Path(__file__).parent.absolute(),'data_yaml_template.txt')
         self.logger.info("DEBUG: Yaml path: {}; full path: {}".format(yaml_template, yaml_template.absolute()))
         self.logger.info("DEBUG: Test rel path: {}".format(Path('./data_yaml_template.txt').absolute()))
 
