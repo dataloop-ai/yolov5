@@ -445,11 +445,16 @@ class ModelAdapter(dl.BaseModelAdapter):
         parser = argparse.ArgumentParser()
         parser.add_argument('--save_dir',          type=str, default=output_path, help='path to save the results')
         parser.add_argument('--epochs',            type=int, default=self.configuration.get('num_epochs', 100))  # 300
-        parser.add_argument('--batch-size',        type=int, default=self.configuration.get('batch_size', 4), help='batch size for all GPUs')
+        parser.add_argument('--batch-size',        type=int, default=self.configuration.get('batch_size', 4),
+                                                   help='batch size for all GPUs')
         # parser.add_argument('--total-batch-size',  type=int, default=16, help='total batch size for all GPUs')
-        parser.add_argument('--weights',           type=str, default=self.configuration['model_fname'], help='initial weights file name')
-        parser.add_argument('--imgsz', '--img', '--img-size', type=int, default=max(self.configuration['input_shape']), help='train, val image size (pixels)')
+        parser.add_argument('--weights',           type=str, default=self.configuration['model_fname'],
+                                                   help='initial weights file name')
+        parser.add_argument('--imgsz', '--img', '--img-size', type=int, default=max(self.configuration['input_shape']),
+                                                                        help='train, val image size (pixels)')
         parser.add_argument('--data',              type=str, default=data_yaml_path, help='dlp_data.yaml path')
+        parser.add_argument('--workers',           type=int, default=self.configuration.get('workers', 8),
+                                                   help='maximum number of dataloader workers')
 
         parser.add_argument('--global_rank',       type=int, default=-1, help='DDP parameter, do not modify')
         parser.add_argument('--local_rank',        type=int, default=-1, help='DDP parameter, do not modify')
@@ -460,7 +465,6 @@ class ModelAdapter(dl.BaseModelAdapter):
         parser.add_argument('--nosave',  action='store_true', help='only save final checkpoint')
         parser.add_argument('--cfg',     type=str,              default='', help='model.yaml path')
         parser.add_argument('--resume',  nargs='?', const=True, default=False, help='resume most recent training')
-        parser.add_argument('--workers', type=int,              default=8, help='maximum number of dataloader workers')
         parser.add_argument('--freeze',  type=int,              default=0, help='Number of layers to freeze. backbone=10, all=24')
         parser.add_argument('--rect', action='store_true', help='rectangular training')
         parser.add_argument('--noautoanchor', action='store_true', help='disable autoanchor check')
