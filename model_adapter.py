@@ -108,7 +108,7 @@ class ModelAdapter(dl.BaseModelAdapter):
         # self.model.warmup(imgsz=(1, 3, *imgsz), half=half)  # warmup
         t1 = time_sync()
 
-        preprocessed_batch = torch.tensor([self.preprocess(img) for img in batch]).to(self.device)
+        preprocessed_batch = torch.from_numpy(np.asarray([self.preprocess(img) for img in batch])).to(self.device)
         preprocessed_batch = preprocessed_batch.half() if self.half else preprocessed_batch.float()  # uint8 to fp16/32
         logger.info('[preprocess]: model batch size{}'.format(preprocessed_batch.shape))
 

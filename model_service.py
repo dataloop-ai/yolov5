@@ -17,13 +17,14 @@ class ServiceRunner(dl.BaseServiceRunner):
         if 'confidence_th' not in config:
             config['confidence_th'] = 0.50
         if 'output_action' not in config:
-            config['output_action'] = 'annotations'
+            config['output_action'] = 'annotations'  # 'dict', 'draw'
         if progress is not None:
             progress.logger.info('input config: %s' % config)
 
         tic = time.time()
-        batch_annotations = self.adapter.predict_items(items=[item])
+        batch_annotations = self.adapter.predict_items(items=[item], with_upload=config['output_action'] == 'draw')
         builder = batch_annotations[0]
+        annotation_batch = None
         if config['output_action'] == 'dict':
             annotation_batch = [{'label': ann.label,
                                  'coordinates': ann.coordinates}
