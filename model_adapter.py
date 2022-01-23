@@ -34,7 +34,7 @@ class ModelAdapter(dl.BaseModelAdapter):
             This is the updated version of the adapter for dtlpy 1.35
     """
 
-    configuration = {'weights': 'yolov5s.pt',
+    configuration = {'weights_filename': 'yolov5s.pt',
                      'img_size': [640, 640],
                      'conf_thres': 0.25,
                      'iou_thres': 0.45,
@@ -54,7 +54,7 @@ class ModelAdapter(dl.BaseModelAdapter):
         :param local_path: `str` directory path in local fileSystem where the weights is taken from
         """
         t1 = time_sync()
-        weights = self.configuration.get('weights', 'yolov5s.pt')  # model.pt path(s)
+        weights = self.configuration.get('weights_filename', 'yolov5s.pt')  # model.pt path(s)
         device = '0' if torch.cuda.is_available() else 'cpu'  # cuda device, i.e. 0 or 0,1,2,3 or cpu
         half = False  # use FP16 half-precision inference
         weights_filepath = os.path.join(local_path, weights)
