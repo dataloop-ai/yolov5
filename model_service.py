@@ -4,7 +4,7 @@ import dtlpy as dl
 
 class ServiceRunner(dl.BaseServiceRunner):
     def __init__(self, dl, model_id, snapshot_id):
-        model_entity = dl.modelds.get(model_id=model_id)
+        model_entity = dl.models.get(model_id=model_id)
         snapshot_entity = dl.snapshots.get(snapshot_id=snapshot_id)
         self.adapter = model_entity.build()
         self.adapter.load_from_snapshot(snapshot=snapshot_entity)
@@ -18,7 +18,8 @@ class ServiceRunner(dl.BaseServiceRunner):
             config['confidence_th'] = 0.50
         if 'output_action' not in config:
             config['output_action'] = 'annotations'
-        progress.logger.info('input config: %s' % config)
+        if progress is not None:
+            progress.logger.info('input config: %s' % config)
 
         tic = time.time()
         batch_annotations = self.adapter.predict_items(items=[item])

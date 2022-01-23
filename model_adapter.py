@@ -12,7 +12,6 @@ import tqdm
 import json
 import yaml
 import os
-import cv2
 
 from utils.callbacks import Callbacks
 from utils.augmentations import letterbox
@@ -101,6 +100,7 @@ class ModelAdapter(dl.BaseModelAdapter):
         iou_thres = self.configuration['iou_thres']
         agnostic_nms = self.configuration['agnostic_nms']
         max_det = self.configuration['max_det']
+        id_to_label_map = self.configuration['id_to_label_map']
 
         seen = batch.shape[0]
         dt = [0.0, 0.0, 0.0]
@@ -130,13 +130,12 @@ class ModelAdapter(dl.BaseModelAdapter):
             det[:, :4] = scale_coords(p_img_shape, det[:, :4], img_shape).round()
             image_annotations = dl.AnnotationCollection()
             for *xyxy, conf, cls in reversed(det):
-                labels = _get_coco_labels_json()
                 image_annotations.add(annotation_definition=dl.Box(
                     left=xyxy[0],
                     top=xyxy[1],
                     right=xyxy[2],
                     bottom=xyxy[3],
-                    label=labels[int(cls)]
+                    label=id_to_label_map[str(int(cls))]  # when loading snapshot, json treats keys as str
                 ),
                     model_info={'name': self.model_name,
                                 'confidence': conf})
@@ -163,8 +162,7 @@ class ModelAdapter(dl.BaseModelAdapter):
         weights_filename = kwargs.get('weights_filename', self.configuration['weights_filename'])
         weights_path = os.path.join(local_path, weights_filename)
         torch.save(self.model, weights_path)
-        self.snapshot.configuration['weights_filename'] = weights_filename
-        self.snapshot.configuration['label_map'] = self.label_map
+        self.configuration['weights_filename'] = weights_filename
         self.snapshot.update()
 
     def train(self, data_path, output_path, **kwargs):
@@ -213,9 +211,8 @@ class ModelAdapter(dl.BaseModelAdapter):
         """
 
         # update the label_map {id: label} to the one from the snapshot
-        label_to_id = {v: k for k, v in self.snapshot.label_map.items()}  # snapshot.label_map {id: name}
-        self.label_map = self.snapshot.label_map  # TODO test if label map is okay or need to use labels...
-
+        id_to_label_map = self.snapshot.id_to_label_map
+        label_to_id_map = {v: k for k, v in id_to_label_map.items()}
         # White / Black list option to use
         white_list = kwargs.get('white_list', False)  # white list is the verified annotations labels to work with
         black_list = kwargs.get('black_list', False)  # black list is the illegal annotations labels to work with
@@ -259,7 +256,7 @@ class ModelAdapter(dl.BaseModelAdapter):
             for in_json_filepath in tqdm.tqdm(json_filepaths, unit='file'):
                 pool.apply_async(func=self._parse_single_annotation_file,
                                  args=(in_json_filepath, in_labels_path, labels_path,
-                                       in_images_path, images_path, label_to_id, counters, lock),
+                                       in_images_path, images_path, label_to_id_map, counters, lock),
                                  kwds={'white_list': white_list,
                                        'black_list': black_list,
                                        'empty_prob': empty_prob}
@@ -272,7 +269,7 @@ class ModelAdapter(dl.BaseModelAdapter):
         self.create_yaml(
             train_path=os.path.join(data_path, dl.SnapshotPartitionType.TRAIN),
             val_path=os.path.join(data_path, dl.SnapshotPartitionType.VALIDATION),
-            classes=list(label_to_id.keys()),
+            classes=list(label_to_id_map.keys()),
             config_path=config_path,
         )
 
@@ -280,7 +277,7 @@ class ModelAdapter(dl.BaseModelAdapter):
         val_cnt = sum([len(files) for r, d, files in os.walk(data_path + '/validation/labels')])
 
         msg = "Finished converting the data. Creating config file: {!r}. ".format(config_path) + \
-              "\nLabels dict {}.\nlabel_map   {}".format(label_to_id, self.label_map) + \
+              "\nLabels dict {}.\nlabel_map   {}".format(label_to_id_map, id_to_label_map) + \
               "\nVal count   : {}\nTrain count: {}".format(val_cnt, train_cnt)
         logger.info(msg)
 
@@ -424,4 +421,3 @@ class ModelAdapter(dl.BaseModelAdapter):
 
         opt = parser.parse_known_args()
         return opt[0]
-
