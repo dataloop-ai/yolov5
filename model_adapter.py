@@ -13,6 +13,9 @@ import json
 import yaml
 import os
 
+import sys
+sys.path.insert(0, os.path.join(os.path.dirname(__file__)))
+
 from utils.callbacks import Callbacks
 from utils.augmentations import letterbox
 from utils.general import increment_path, non_max_suppression, scale_coords
@@ -100,7 +103,7 @@ class ModelAdapter(dl.BaseModelAdapter):
         iou_thres = self.configuration['iou_thres']
         agnostic_nms = self.configuration['agnostic_nms']
         max_det = self.configuration['max_det']
-        id_to_label_map = self.configuration['id_to_label_map']
+        id_to_label_map = self.configuration['id_to_label_map'] #TODO: resolve. what if not in the configuration?
 
         seen = batch.shape[0]
         dt = [0.0, 0.0, 0.0]
@@ -421,3 +424,81 @@ class ModelAdapter(dl.BaseModelAdapter):
 
         opt = parser.parse_known_args()
         return opt[0]
+
+
+def model_creation(project_name, env: str = 'prod'):
+    dl.setenv(env)
+    project = dl.projects.get(project_name)
+
+    codebase = dl.GitCodebase(git_url='https://github.com/dataloop-ai/yolov5.git',
+                              git_tag='dtlpy-v6.1.1')
+    model = project.models.create(model_name='yolo-v5',
+                                  description='Global Dataloop Yolo V5 implemented in pytorch',
+                                  output_type=dl.AnnotationType.BOX,
+                                #   is_global=(project.name == 'DataloopModels'),
+                                  tags=['torch', 'yolo', 'detection'],
+                                  codebase=codebase,
+                                  entry_point='model_adapter.py',
+                                  default_runtime=dl.KubernetesRuntime(runner_image=''),
+                                  default_configuration={'size': 640})
+    return model
+
+
+def snapshot_creation(model: dl.Model, yolo_size='small', env: str = 'prod'):
+    dl.setenv(env)
+
+    # TODO: can we add two model arc in one dir - yolov5l, yolov5s
+    # Select the specific arch and gcs bucket
+    if yolo_size == 'small':
+        gcs_prefix = 'yolo-v5-v6/small'
+        weights_filename = 'yolov5s.pt'
+    elif yolo_size == 'large':
+        gcs_prefix = 'yolo-v5-v6/large'
+        weights_filename = 'yolov5l.pt'
+    elif yolo_size == 'extra':
+        gcs_prefix = 'yolo-v5-v6/extra'
+        weights_filename = 'yolov5x.pt'
+    elif yolo_size == 'openvino':
+        gcs_prefix = 'yolo-v5-v6/openvino'
+        weights_filename = 'yolov5s.xml'
+
+    else:
+        raise RuntimeError('yolo_size {!r} - un-supported, choose "small" "large" or "extra" '.format(yolo_size))
+
+    labels = ['person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus', 'train', 'truck', 'boat', 'traffic light',
+    'fire hydrant', 'stop sign', 'parking meter', 'bench', 'bird', 'cat', 'dog', 'horse', 'sheep', 'cow',
+    'elephant', 'bear', 'zebra', 'giraffe', 'backpack', 'umbrella', 'handbag', 'tie', 'suitcase', 'frisbee',
+    'skis', 'snowboard', 'sports ball', 'kite', 'baseball bat', 'baseball glove', 'skateboard', 'surfboard',
+    'tennis racket', 'bottle', 'wine glass', 'cup', 'fork', 'knife', 'spoon', 'bowl', 'banana', 'apple',
+    'sandwich', 'orange', 'broccoli', 'carrot', 'hot dog', 'pizza', 'donut', 'cake', 'chair', 'couch',
+    'potted plant', 'bed', 'dining table', 'toilet', 'tv', 'laptop', 'mouse', 'remote', 'keyboard', 'cell phone',
+    'microwave', 'oven', 'toaster', 'sink', 'refrigerator', 'book', 'clock', 'vase', 'scissors', 'teddy bear',
+    'hair drier', 'toothbrush']
+
+
+    bucket = dl.buckets.create(dl.BucketType.GCS,
+                               gcs_project_name='viewo-main',
+                               gcs_bucket_name='model-mgmt-snapshots',
+                               gcs_prefix=gcs_prefix)
+    snapshot = model.snapshots.create(snapshot_name='pretrained-yolo-v5-{}'.format(yolo_size),
+                                      description='yolo v5 {} arch, pretrained on ms-coco'.format(yolo_size),
+                                      tags=['pretrained', 'ms-coco'],
+                                      dataset_id=None,
+                                      is_global=model.is_global,
+                                      status='trained',
+                                      configuration={'weights_filename': weights_filename,
+                                                     'img_size': [640, 640],
+                                                     'conf_thres': 0.25,
+                                                     'iou_thres': 0.45,
+                                                     'max_det': 1000,
+                                                     'device': 'cuda',
+                                                     'agnostic_nms': False,
+                                                     'half': False,
+                                                     'id_to_label_map': {ind: label for ind, label in
+                                                                         enumerate(labels)}},
+                                      project_id=model.project.id,
+                                      bucket=bucket,
+                                      labels=labels
+                                      )
+    return snapshot
+
