@@ -102,6 +102,10 @@ def train(hyp,  # path/to/hyp.yaml or hyp dictionary
         for k in methods(loggers):
             callbacks.register_action(k, callback=getattr(loggers, k))
 
+    with open(opt.data) as f:
+        data_dict = yaml.safe_load(f)
+
+
     # Config
     plots = not evolve  # create plots
     cuda = device.type != 'cpu'
