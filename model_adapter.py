@@ -26,6 +26,9 @@ logger = logging.getLogger('yolo-v5')
 logging.basicConfig(level='INFO')
 
 
+import dtlpy as dl
+from dtlpy.utilities.dataset_generators.dataset_generator_torch import DatasetGeneratorTorch
+
 class ModelAdapter(dl.BaseModelAdapter):
     """
     Yolo5 Model adapter - based on ultralytics pytorch implementation.
@@ -186,7 +189,7 @@ class ModelAdapter(dl.BaseModelAdapter):
         if os.path.isfile(self.configuration['hyp_yaml_fname']):
             hyp_full_path = self.configuration['hyp_yaml_fname']
         else:
-            hyp_full_path = os.path.join(os.path.dirname(__file__), self.configuration['hyp_yaml_fname'])
+            hyp_full_path = os.path.join(os.path.dirname(__file__), 'data', 'hyps', self.configuration['hyp_yaml_fname'])
         hyp = yaml.safe_load(open(hyp_full_path, 'r'))
         opt = self._create_opt(data_path=data_path, output_path=output_path, **kwargs)
         logger.info("Created OPT configuration: batch_size {b};  num_epochs {num} image_size {sz}".
@@ -194,7 +197,26 @@ class ModelAdapter(dl.BaseModelAdapter):
         logger.debug("OPT config full debug: {}".format(opt))
         # Make sure opt.weights has the exact model file as it will load from there
 
-        train_results = train_script.train(hyp, opt, self.device, callbacks=Callbacks())
+        # Dtlpy Generator
+        train_dataset = DatasetGeneratorTorch(data_path=os.path.join(data_path, 'train'),
+                                    dataset_entity=self.snapshot.dataset,
+                                    annotation_type=dl.AnnotationType.BOX,
+                                    # transforms=data_transforms['val'],
+                                    id_to_label_map=self.snapshot.configuration['id_to_label_map'],
+                                    class_balancing=False,
+                                        )
+        val_dataset = DatasetGeneratorTorch(data_path=os.path.join(data_path, 'validation'),
+                                    dataset_entity=self.snapshot.dataset,
+                                    annotation_type=dl.AnnotationType.BOX,
+                                    # transforms=data_transforms['val'],
+                                    id_to_label_map=self.snapshot.configuration['id_to_label_map'],
+                                    )
+
+        dataloader = {'train': train_dataset,
+                       'val': val_dataset}
+
+
+        train_results = train_script.train(hyp, opt, self.device, callbacks=Callbacks(), dataloader=dataloader)
         logger.info('Train Finished. Actual output path: {}'.format(opt.save_dir))
 
         # load best model weights
@@ -269,12 +291,12 @@ class ModelAdapter(dl.BaseModelAdapter):
             pool.terminate()
 
         config_path = os.path.join(data_path, self.configuration['data_yaml_fname'])
-        self.create_yaml(
-            train_path=os.path.join(data_path, dl.SnapshotPartitionType.TRAIN),
-            val_path=os.path.join(data_path, dl.SnapshotPartitionType.VALIDATION),
-            classes=list(label_to_id_map.keys()),
-            config_path=config_path,
-        )
+        # self.create_yaml(
+        #     train_path=os.path.join(data_path, dl.SnapshotPartitionType.TRAIN),
+        #     val_path=os.path.join(data_path, dl.SnapshotPartitionType.VALIDATION),
+        #     classes=list(label_to_id_map.keys()),
+        #     config_path=config_path,
+        # )
 
         train_cnt = sum([len(files) for r, d, files in os.walk(data_path + '/train/labels')])
         val_cnt = sum([len(files) for r, d, files in os.walk(data_path + '/validation/labels')])
@@ -375,9 +397,9 @@ class ModelAdapter(dl.BaseModelAdapter):
         parser.add_argument('--batch-size', type=int, default=self.configuration.get('batch_size', 4),
                             help='batch size for all GPUs')
         # parser.add_argument('--total-batch-size',  type=int, default=16, help='total batch size for all GPUs')
-        parser.add_argument('--weights', type=str, default=self.configuration['model_fname'],
+        parser.add_argument('--weights', type=str, default=self.configuration['weights_filename'],
                             help='initial weights file name')
-        parser.add_argument('--imgsz', '--img', '--img-size', type=int, default=max(self.configuration['input_shape']),
+        parser.add_argument('--imgsz', '--img', '--img-size', type=int, default=max(self.configuration['img_size']),
                             help='train, val image size (pixels)')
         parser.add_argument('--data', type=str, default=data_yaml_path, help='dlp_data.yaml path')
         parser.add_argument('--workers', type=int, default=self.configuration.get('workers', 8),
@@ -392,7 +414,6 @@ class ModelAdapter(dl.BaseModelAdapter):
         parser.add_argument('--nosave', action='store_true', help='only save final checkpoint')
         parser.add_argument('--cfg', type=str, default='', help='model.yaml path')
         parser.add_argument('--resume', nargs='?', const=True, default=False, help='resume most recent training')
-        parser.add_argument('--freeze', type=int, default=0, help='Number of layers to freeze. backbone=10, all=24')
         parser.add_argument('--rect', action='store_true', help='rectangular training')
         parser.add_argument('--noautoanchor', action='store_true', help='disable autoanchor check')
         parser.add_argument('--sync-bn', action='store_true', help='use SyncBatchNorm, only available in DDP mode')
@@ -407,6 +428,9 @@ class ModelAdapter(dl.BaseModelAdapter):
         parser.add_argument('--save_period', type=int, default=-1, help='Log model after every "save_period" epoch')
         parser.add_argument('--patience', type=int, default=100,
                             help='EarlyStopping patience (epochs without improvement)')
+        parser.add_argument('--optimizer', type=str, choices=['SGD', 'Adam', 'AdamW'], default='SGD', help='optimizer')
+        parser.add_argument('--freeze', nargs='+', type=int, default=[0], help='Freeze layers: backbone=10, first3=0 1 2')
+
 
         # NEW
         # parser.add_argument('--hyp', type=str, default='data/hyps/hyp.scratch.yaml', help='hyperparameters path')
@@ -450,7 +474,8 @@ def snapshot_creation(model: dl.Model, yolo_size='small', env: str = 'prod'):
     # TODO: can we add two model arc in one dir - yolov5l, yolov5s
     # Select the specific arch and gcs bucket
     if yolo_size == 'small':
-        gcs_prefix = 'yolo-v5-v6/small'
+        # gcs_prefix = 'yolo-v5-v6/small'
+        gcs_prefix = 'yolo-v5-small'
         weights_filename = 'yolov5s.pt'
     elif yolo_size == 'large':
         gcs_prefix = 'yolo-v5-v6/large'
@@ -465,17 +490,9 @@ def snapshot_creation(model: dl.Model, yolo_size='small', env: str = 'prod'):
     else:
         raise RuntimeError('yolo_size {!r} - un-supported, choose "small" "large" or "extra" '.format(yolo_size))
 
-    labels = ['person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus', 'train', 'truck', 'boat', 'traffic light',
-    'fire hydrant', 'stop sign', 'parking meter', 'bench', 'bird', 'cat', 'dog', 'horse', 'sheep', 'cow',
-    'elephant', 'bear', 'zebra', 'giraffe', 'backpack', 'umbrella', 'handbag', 'tie', 'suitcase', 'frisbee',
-    'skis', 'snowboard', 'sports ball', 'kite', 'baseball bat', 'baseball glove', 'skateboard', 'surfboard',
-    'tennis racket', 'bottle', 'wine glass', 'cup', 'fork', 'knife', 'spoon', 'bowl', 'banana', 'apple',
-    'sandwich', 'orange', 'broccoli', 'carrot', 'hot dog', 'pizza', 'donut', 'cake', 'chair', 'couch',
-    'potted plant', 'bed', 'dining table', 'toilet', 'tv', 'laptop', 'mouse', 'remote', 'keyboard', 'cell phone',
-    'microwave', 'oven', 'toaster', 'sink', 'refrigerator', 'book', 'clock', 'vase', 'scissors', 'teddy bear',
-    'hair drier', 'toothbrush']
-
-
+    with open('data/coco.yaml') as f:
+        coco_yaml = yaml.safe_load(f)
+    labels = coco_yaml['names']
     bucket = dl.buckets.create(dl.BucketType.GCS,
                                gcs_project_name='viewo-main',
                                gcs_bucket_name='model-mgmt-snapshots',
@@ -494,11 +511,12 @@ def snapshot_creation(model: dl.Model, yolo_size='small', env: str = 'prod'):
                                                      'device': 'cuda',
                                                      'agnostic_nms': False,
                                                      'half': False,
+                                                     'data_yaml_fname': 'coco.yaml',
+                                                     'hyp_yaml_fname': 'hyp.finetune.yaml',
                                                      'id_to_label_map': {ind: label for ind, label in
                                                                          enumerate(labels)}},
                                       project_id=model.project.id,
                                       bucket=bucket,
-                                      labels=labels
+                                      labels=labels,
                                       )
     return snapshot
-

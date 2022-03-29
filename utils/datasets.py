@@ -109,17 +109,18 @@ def create_dataloader(path, imgsz, batch_size, stride, single_cls=False, hyp=Non
                                       image_weights=image_weights,
                                       prefix=prefix)
 
-    batch_size = min(batch_size, len(dataset))
+    # batch_size = min(batch_size, len(dataset))
+    batch_size = min(batch_size, path.n_items)
     nw = min([os.cpu_count() // WORLD_SIZE, batch_size if batch_size > 1 else 0, workers])  # number of workers
     sampler = None if rank == -1 else distributed.DistributedSampler(dataset, shuffle=shuffle)
     loader = DataLoader if image_weights else InfiniteDataLoader  # only DataLoader allows for attribute updates
-    return loader(dataset,
+    return loader(dataset.path,
                   batch_size=batch_size,
                   shuffle=shuffle and sampler is None,
                   num_workers=nw,
                   sampler=sampler,
                   pin_memory=True,
-                  collate_fn=LoadImagesAndLabels.collate_fn4 if quad else LoadImagesAndLabels.collate_fn), dataset
+                  collate_fn=LoadImagesAndLabels.collate_fn4 if quad else LoadImagesAndLabels.collate_fn), dataset.path
 
 
 class InfiniteDataLoader(dataloader.DataLoader):
@@ -392,119 +393,125 @@ class LoadImagesAndLabels(Dataset):
         self.path = path
         self.albumentations = Albumentations() if augment else None
 
-        try:
-            f = []  # image files
-            for p in path if isinstance(path, list) else [path]:
-                p = Path(p)  # os-agnostic
-                if p.is_dir():  # dir
-                    f += glob.glob(str(p / '**' / '*.*'), recursive=True)
-                    # f = list(p.rglob('*.*'))  # pathlib
-                elif p.is_file():  # file
-                    with open(p) as t:
-                        t = t.read().strip().splitlines()
-                        parent = str(p.parent) + os.sep
-                        f += [x.replace('./', parent) if x.startswith('./') else x for x in t]  # local to global path
-                        # f += [p.parent / x.lstrip(os.sep) for x in t]  # local to global path (pathlib)
-                else:
-                    raise Exception(f'{prefix}{p} does not exist')
-            self.img_files = sorted(x.replace('/', os.sep) for x in f if x.split('.')[-1].lower() in IMG_FORMATS)
-            # self.img_files = sorted([x for x in f if x.suffix[1:].lower() in IMG_FORMATS])  # pathlib
-            assert self.img_files, f'{prefix}No images found'
-        except Exception as e:
-            raise Exception(f'{prefix}Error loading data from {path}: {e}\nSee {HELP_URL}')
 
-        # Check cache
-        self.label_files = img2label_paths(self.img_files)  # labels
-        cache_path = (p if p.is_file() else Path(self.label_files[0]).parent).with_suffix('.cache')
-        try:
-            cache, exists = np.load(cache_path, allow_pickle=True).item(), True  # load dict
-            assert cache['version'] == self.cache_version  # same version
-            assert cache['hash'] == get_hash(self.label_files + self.img_files)  # same hash
-        except:
-            cache, exists = self.cache_labels(cache_path, prefix), False  # cache
+        if hasattr(self.path, '__getsingleitem__'): #TODO: implement
+            pass
 
-        # Display cache
-        nf, nm, ne, nc, n = cache.pop('results')  # found, missing, empty, corrupt, total
-        if exists:
-            d = f"Scanning '{cache_path}' images and labels... {nf} found, {nm} missing, {ne} empty, {nc} corrupt"
-            tqdm(None, desc=prefix + d, total=n, initial=n)  # display cache results
-            if cache['msgs']:
-                LOGGER.info('\n'.join(cache['msgs']))  # display warnings
-        assert nf > 0 or not augment, f'{prefix}No labels in {cache_path}. Can not train without labels. See {HELP_URL}'
+        else:
+            try:
+                f = []  # image files
+                for p in path if isinstance(path, list) else [path]:
+                    p = Path(p)  # os-agnostic
+                    if p.is_dir():  # dir
+                        f += glob.glob(str(p / '**' / '*.*'), recursive=True)
+                        # f = list(p.rglob('*.*'))  # pathlib
+                    elif p.is_file():  # file
+                        with open(p) as t:
+                            t = t.read().strip().splitlines()
+                            parent = str(p.parent) + os.sep
+                            f += [x.replace('./', parent) if x.startswith('./') else x for x in t]  # local to global path
+                            # f += [p.parent / x.lstrip(os.sep) for x in t]  # local to global path (pathlib)
+                    else:
+                        raise Exception(f'{prefix}{p} does not exist')
+                self.img_files = sorted(x.replace('/', os.sep) for x in f if x.split('.')[-1].lower() in IMG_FORMATS)
+                # self.img_files = sorted([x for x in f if x.suffix[1:].lower() in IMG_FORMATS])  # pathlib
+                assert self.img_files, f'{prefix}No images found'
+            except Exception as e:
+                raise Exception(f'{prefix}Error loading data from {path}: {e}\nSee {HELP_URL}')
 
-        # Read cache
-        [cache.pop(k) for k in ('hash', 'version', 'msgs')]  # remove items
-        labels, shapes, self.segments = zip(*cache.values())
-        self.labels = list(labels)
-        self.shapes = np.array(shapes, dtype=np.float64)
-        self.img_files = list(cache.keys())  # update
-        self.label_files = img2label_paths(cache.keys())  # update
-        n = len(shapes)  # number of images
-        bi = np.floor(np.arange(n) / batch_size).astype(np.int)  # batch index
-        nb = bi[-1] + 1  # number of batches
-        self.batch = bi  # batch index of image
-        self.n = n
-        self.indices = range(n)
 
-        # Update labels
-        include_class = []  # filter labels to include only these classes (optional)
-        include_class_array = np.array(include_class).reshape(1, -1)
-        for i, (label, segment) in enumerate(zip(self.labels, self.segments)):
-            if include_class:
-                j = (label[:, 0:1] == include_class_array).any(1)
-                self.labels[i] = label[j]
-                if segment:
-                    self.segments[i] = segment[j]
-            if single_cls:  # single-class training, merge all classes into 0
-                self.labels[i][:, 0] = 0
-                if segment:
-                    self.segments[i][:, 0] = 0
+            # Check cache
+            self.label_files = img2label_paths(self.img_files)  # labels
+            cache_path = (p if p.is_file() else Path(self.label_files[0]).parent).with_suffix('.cache')
+            try:
+                cache, exists = np.load(cache_path, allow_pickle=True).item(), True  # load dict
+                assert cache['version'] == self.cache_version  # same version
+                assert cache['hash'] == get_hash(self.label_files + self.img_files)  # same hash
+            except:
+                cache, exists = self.cache_labels(cache_path, prefix), False  # cache
 
-        # Rectangular Training
-        if self.rect:
-            # Sort by aspect ratio
-            s = self.shapes  # wh
-            ar = s[:, 1] / s[:, 0]  # aspect ratio
-            irect = ar.argsort()
-            self.img_files = [self.img_files[i] for i in irect]
-            self.label_files = [self.label_files[i] for i in irect]
-            self.labels = [self.labels[i] for i in irect]
-            self.shapes = s[irect]  # wh
-            ar = ar[irect]
+            # Display cache
+            nf, nm, ne, nc, n = cache.pop('results')  # found, missing, empty, corrupt, total
+            if exists:
+                d = f"Scanning '{cache_path}' images and labels... {nf} found, {nm} missing, {ne} empty, {nc} corrupt"
+                tqdm(None, desc=prefix + d, total=n, initial=n)  # display cache results
+                if cache['msgs']:
+                    LOGGER.info('\n'.join(cache['msgs']))  # display warnings
+            assert nf > 0 or not augment, f'{prefix}No labels in {cache_path}. Can not train without labels. See {HELP_URL}'
 
-            # Set training image shapes
-            shapes = [[1, 1]] * nb
-            for i in range(nb):
-                ari = ar[bi == i]
-                mini, maxi = ari.min(), ari.max()
-                if maxi < 1:
-                    shapes[i] = [maxi, 1]
-                elif mini > 1:
-                    shapes[i] = [1, 1 / mini]
+            # Read cache
+            [cache.pop(k) for k in ('hash', 'version', 'msgs')]  # remove items
+            labels, shapes, self.segments = zip(*cache.values())
+            self.labels = list(labels)
+            self.shapes = np.array(shapes, dtype=np.float64)
+            self.img_files = list(cache.keys())  # update
+            self.label_files = img2label_paths(cache.keys())  # update
+            n = len(shapes)  # number of images
+            bi = np.floor(np.arange(n) / batch_size).astype(np.int)  # batch index
+            nb = bi[-1] + 1  # number of batches
+            self.batch = bi  # batch index of image
+            self.n = n
+            self.indices = range(n)
 
-            self.batch_shapes = np.ceil(np.array(shapes) * img_size / stride + pad).astype(np.int) * stride
+            # Update labels
+            include_class = []  # filter labels to include only these classes (optional)
+            include_class_array = np.array(include_class).reshape(1, -1)
+            for i, (label, segment) in enumerate(zip(self.labels, self.segments)):
+                if include_class:
+                    j = (label[:, 0:1] == include_class_array).any(1)
+                    self.labels[i] = label[j]
+                    if segment:
+                        self.segments[i] = segment[j]
+                if single_cls:  # single-class training, merge all classes into 0
+                    self.labels[i][:, 0] = 0
+                    if segment:
+                        self.segments[i][:, 0] = 0
 
-        # Cache images into memory for faster training (WARNING: large datasets may exceed system RAM)
-        self.imgs, self.img_npy = [None] * n, [None] * n
-        if cache_images:
-            if cache_images == 'disk':
-                self.im_cache_dir = Path(Path(self.img_files[0]).parent.as_posix() + '_npy')
-                self.img_npy = [self.im_cache_dir / Path(f).with_suffix('.npy').name for f in self.img_files]
-                self.im_cache_dir.mkdir(parents=True, exist_ok=True)
-            gb = 0  # Gigabytes of cached images
-            self.img_hw0, self.img_hw = [None] * n, [None] * n
-            results = ThreadPool(NUM_THREADS).imap(lambda x: load_image(*x), zip(repeat(self), range(n)))
-            pbar = tqdm(enumerate(results), total=n)
-            for i, x in pbar:
+            # Rectangular Training
+            if self.rect:
+                # Sort by aspect ratio
+                s = self.shapes  # wh
+                ar = s[:, 1] / s[:, 0]  # aspect ratio
+                irect = ar.argsort()
+                self.img_files = [self.img_files[i] for i in irect]
+                self.label_files = [self.label_files[i] for i in irect]
+                self.labels = [self.labels[i] for i in irect]
+                self.shapes = s[irect]  # wh
+                ar = ar[irect]
+
+                # Set training image shapes
+                shapes = [[1, 1]] * nb
+                for i in range(nb):
+                    ari = ar[bi == i]
+                    mini, maxi = ari.min(), ari.max()
+                    if maxi < 1:
+                        shapes[i] = [maxi, 1]
+                    elif mini > 1:
+                        shapes[i] = [1, 1 / mini]
+
+                self.batch_shapes = np.ceil(np.array(shapes) * img_size / stride + pad).astype(np.int) * stride
+
+            # Cache images into memory for faster training (WARNING: large datasets may exceed system RAM)
+            self.imgs, self.img_npy = [None] * n, [None] * n
+            if cache_images:
                 if cache_images == 'disk':
-                    if not self.img_npy[i].exists():
-                        np.save(self.img_npy[i].as_posix(), x[0])
-                    gb += self.img_npy[i].stat().st_size
-                else:
-                    self.imgs[i], self.img_hw0[i], self.img_hw[i] = x  # im, hw_orig, hw_resized = load_image(self, i)
-                    gb += self.imgs[i].nbytes
-                pbar.desc = f'{prefix}Caching images ({gb / 1E9:.1f}GB {cache_images})'
-            pbar.close()
+                    self.im_cache_dir = Path(Path(self.img_files[0]).parent.as_posix() + '_npy')
+                    self.img_npy = [self.im_cache_dir / Path(f).with_suffix('.npy').name for f in self.img_files]
+                    self.im_cache_dir.mkdir(parents=True, exist_ok=True)
+                gb = 0  # Gigabytes of cached images
+                self.img_hw0, self.img_hw = [None] * n, [None] * n
+                results = ThreadPool(NUM_THREADS).imap(lambda x: load_image(*x), zip(repeat(self), range(n)))
+                pbar = tqdm(enumerate(results), total=n)
+                for i, x in pbar:
+                    if cache_images == 'disk':
+                        if not self.img_npy[i].exists():
+                            np.save(self.img_npy[i].as_posix(), x[0])
+                        gb += self.img_npy[i].stat().st_size
+                    else:
+                        self.imgs[i], self.img_hw0[i], self.img_hw[i] = x  # im, hw_orig, hw_resized = load_image(self, i)
+                        gb += self.imgs[i].nbytes
+                    pbar.desc = f'{prefix}Caching images ({gb / 1E9:.1f}GB {cache_images})'
+                pbar.close()
 
     def cache_labels(self, path=Path('./labels.cache'), prefix=''):
         # Cache dataset labels, check images and read shapes
@@ -543,7 +550,10 @@ class LoadImagesAndLabels(Dataset):
         return x
 
     def __len__(self):
-        return len(self.img_files)
+        if hasattr(self.path, '__getsingleitem__'):
+            self.path.n_items
+        else:
+            return len(self.img_files)
 
     # def __iter__(self):
     #     self.count = -1

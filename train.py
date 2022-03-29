@@ -65,7 +65,8 @@ WORLD_SIZE = int(os.getenv('WORLD_SIZE', 1))
 def train(hyp,  # path/to/hyp.yaml or hyp dictionary
           opt,
           device,
-          callbacks
+          callbacks,
+          dataloader
           ):
     save_dir, epochs, batch_size, weights, single_cls, evolve, data, cfg, resume, noval, nosave, workers, freeze = \
         Path(opt.save_dir), opt.epochs, opt.batch_size, opt.weights, opt.single_cls, opt.evolve, opt.data, opt.cfg, \
@@ -102,6 +103,10 @@ def train(hyp,  # path/to/hyp.yaml or hyp dictionary
         for k in methods(loggers):
             callbacks.register_action(k, callback=getattr(loggers, k))
 
+
+    with open(opt.data) as f:
+        data_dict = yaml.safe_load(f)
+
     # Config
     plots = not evolve  # create plots
     cuda = device.type != 'cpu'
@@ -109,6 +114,9 @@ def train(hyp,  # path/to/hyp.yaml or hyp dictionary
     with torch_distributed_zero_first(LOCAL_RANK):
         data_dict = data_dict or check_dataset(data)  # check if None
     train_path, val_path = data_dict['train'], data_dict['val']
+    if dataloader:
+        train_path, val_path = dataloader['train'], dataloader['val']
+
     nc = 1 if single_cls else int(data_dict['nc'])  # number of classes
     names = ['item'] if single_cls and len(data_dict['names']) != 1 else data_dict['names']  # class names
     assert len(names) == nc, f'{len(names)} names found for nc={nc} dataset in {data}'  # check
@@ -224,7 +232,9 @@ def train(hyp,  # path/to/hyp.yaml or hyp dictionary
                                               hyp=hyp, augment=True, cache=opt.cache, rect=opt.rect, rank=LOCAL_RANK,
                                               workers=workers, image_weights=opt.image_weights, quad=opt.quad,
                                               prefix=colorstr('train: '), shuffle=True)
+    dataset.labels = np.array([int(i) for i in dataset.label_to_id_map.values()])[..., None, None]
     mlc = int(np.concatenate(dataset.labels, 0)[:, 0].max())  # max label class
+    mlc = max([int(i) for i in dataset.label_to_id_map.values()])
     nb = len(train_loader)  # number of batches
     assert mlc < nc, f'Label class {mlc} exceeds nc={nc} in {data}. Possible class labels are 0-{nc - 1}'
 
