@@ -13,9 +13,6 @@ import json
 import yaml
 import os
 
-import sys
-sys.path.insert(0, os.path.join(os.path.dirname(__file__)))
-
 from utils.callbacks import Callbacks
 from utils.augmentations import letterbox
 from utils.general import increment_path, non_max_suppression, scale_coords
@@ -25,9 +22,6 @@ from utils.torch_utils import select_device, time_sync
 logger = logging.getLogger('yolo-v5')
 logging.basicConfig(level='INFO')
 
-
-import dtlpy as dl
-from dtlpy.utilities.dataset_generators.dataset_generator_torch import DatasetGeneratorTorch
 
 class ModelAdapter(dl.BaseModelAdapter):
     """
@@ -106,7 +100,7 @@ class ModelAdapter(dl.BaseModelAdapter):
         iou_thres = self.configuration['iou_thres']
         agnostic_nms = self.configuration['agnostic_nms']
         max_det = self.configuration['max_det']
-        id_to_label_map = self.configuration['id_to_label_map'] #TODO: resolve. what if not in the configuration?
+        id_to_label_map = self.configuration['id_to_label_map']
 
         seen = batch.shape[0]
         dt = [0.0, 0.0, 0.0]
@@ -196,25 +190,6 @@ class ModelAdapter(dl.BaseModelAdapter):
                     format(b=opt.batch_size, num=opt.epochs, sz=opt.imgsz))
         logger.debug("OPT config full debug: {}".format(opt))
         # Make sure opt.weights has the exact model file as it will load from there
-
-        # Dtlpy Generator
-        # train_dataset = DatasetGeneratorTorch(data_path=os.path.join(data_path, 'train'),
-        #                             dataset_entity=self.snapshot.dataset,
-        #                             annotation_type=dl.AnnotationType.BOX,
-        #                             # transforms=data_transforms['val'],
-        #                             id_to_label_map=self.snapshot.configuration['id_to_label_map'],
-        #                             class_balancing=False,
-        #                                 )
-        # val_dataset = DatasetGeneratorTorch(data_path=os.path.join(data_path, 'validation'),
-        #                             dataset_entity=self.snapshot.dataset,
-        #                             annotation_type=dl.AnnotationType.BOX,
-        #                             # transforms=data_transforms['val'],
-        #                             id_to_label_map=self.snapshot.configuration['id_to_label_map'],
-        #                             )
-
-        # dataloader = {'train': train_dataset,
-        #                'val': val_dataset}
-
 
         train_results = train_script.train(hyp, opt, self.device, callbacks=Callbacks())
         logger.info('Train Finished. Actual output path: {}'.format(opt.save_dir))
@@ -373,17 +348,17 @@ class ModelAdapter(dl.BaseModelAdapter):
         Create the data (or is it the config) yaml
         """
 
-        # yaml_template = Path(Path(__file__).parent.absolute(), 'data_yaml_template.txt')
-        # template = Template(yaml_template.open('r').read())
-        yaml_str = {
+        yaml_template = Path(Path(__file__).parent.absolute(), 'data_yaml_template.txt')
+        template = Template(yaml_template.open('r').read())
+        yaml_str = str({
             'train': train_path,
             'val': val_path,
             'nc': len(classes),
             'names': classes
-        }
+        })
 
         with open(config_path, 'w') as f:
-            f.write(str(yaml_str))
+            f.write(yaml_str)
 
     def _create_opt(self, data_path, output_path, **kwargs):
         import argparse
@@ -428,9 +403,9 @@ class ModelAdapter(dl.BaseModelAdapter):
         parser.add_argument('--save_period', type=int, default=-1, help='Log model after every "save_period" epoch')
         parser.add_argument('--patience', type=int, default=100,
                             help='EarlyStopping patience (epochs without improvement)')
+
         parser.add_argument('--optimizer', type=str, choices=['SGD', 'Adam', 'AdamW'], default='SGD', help='optimizer')
         parser.add_argument('--freeze', nargs='+', type=int, default=[0], help='Freeze layers: backbone=10, first3=0 1 2')
-
 
         # NEW
         # parser.add_argument('--hyp', type=str, default='data/hyps/hyp.scratch.yaml', help='hyperparameters path')
@@ -474,8 +449,7 @@ def snapshot_creation(model: dl.Model, yolo_size='small', env: str = 'prod'):
     # TODO: can we add two model arc in one dir - yolov5l, yolov5s
     # Select the specific arch and gcs bucket
     if yolo_size == 'small':
-        # gcs_prefix = 'yolo-v5-v6/small'
-        gcs_prefix = 'yolo-v5-small'
+        gcs_prefix = 'yolo-v5/small'
         weights_filename = 'yolov5s.pt'
     elif yolo_size == 'large':
         gcs_prefix = 'yolo-v5-v6/large'
@@ -506,17 +480,17 @@ def snapshot_creation(model: dl.Model, yolo_size='small', env: str = 'prod'):
                                       configuration={'weights_filename': weights_filename,
                                                      'img_size': [640, 640],
                                                      'conf_thres': 0.25,
+                                                     'data_yaml_fname': 'coco.yaml',
+                                                     'hyp_yaml_fname': 'hyp.finetune.yaml',
                                                      'iou_thres': 0.45,
                                                      'max_det': 1000,
                                                      'device': 'cuda',
                                                      'agnostic_nms': False,
                                                      'half': False,
-                                                     'data_yaml_fname': 'coco.yaml',
-                                                     'hyp_yaml_fname': 'hyp.finetune.yaml',
                                                      'id_to_label_map': {ind: label for ind, label in
                                                                          enumerate(labels)}},
                                       project_id=model.project.id,
                                       bucket=bucket,
-                                      labels=labels,
+                                      labels=labels
                                       )
     return snapshot
