@@ -1,6 +1,5 @@
 from multiprocessing.pool import ThreadPool
 from multiprocessing import Lock
-from string import Template
 from pathlib import Path
 import dtlpy as dl
 import numpy as np
@@ -33,15 +32,6 @@ class ModelAdapter(dl.BaseModelAdapter):
             This is the updated version of the adapter for dtlpy 1.35
     """
 
-    configuration = {'weights_filename': 'yolov5s.pt',
-                     'img_size': [640, 640],
-                     'conf_thres': 0.25,
-                     'iou_thres': 0.45,
-                     'max_det': 1000,
-                     'device': 'cuda',
-                     'agnostic_nms': False,
-                     'half': False}
-
     def __init__(self, model_entity):
         super(ModelAdapter, self).__init__(model_entity)
 
@@ -54,8 +44,9 @@ class ModelAdapter(dl.BaseModelAdapter):
         """
         t1 = time_sync()
         weights = self.configuration.get('weights_filename', 'yolov5s.pt')  # model.pt path(s)
+        half = self.configuration.get('half', False)  # use FP16 half-precision inference
         device = '0' if torch.cuda.is_available() else 'cpu'  # cuda device, i.e. 0 or 0,1,2,3 or cpu
-        half = False  # use FP16 half-precision inference
+
         weights_filepath = os.path.join(local_path, weights)
 
         # Load model
@@ -63,7 +54,6 @@ class ModelAdapter(dl.BaseModelAdapter):
         logger.info('device is: {}'.format(device))
         model = DetectMultiBackend(weights_filepath, device=device)
         stride, names, pt, jit, onnx, engine = model.stride, model.names, model.pt, model.jit, model.onnx, model.engine
-
         # Half
         half &= (pt or jit or onnx or engine) and device.type != 'cpu'  # FP16 supported on limited backends with CUDA
         if pt or jit:
@@ -85,7 +75,6 @@ class ModelAdapter(dl.BaseModelAdapter):
         img = img.transpose((2, 0, 1))[::-1]  # HWC to CHW, BGR to RGB
         img = np.ascontiguousarray(img).astype(float)
         img /= 255  # 0 - 255 to 0.0 - 1.0
-
         return img
 
     def predict(self, batch, **kwargs):
@@ -130,15 +119,15 @@ class ModelAdapter(dl.BaseModelAdapter):
             det[:, :4] = scale_coords(p_img_shape, det[:, :4], img_shape).round()
             image_annotations = dl.AnnotationCollection()
             for *xyxy, conf, cls in reversed(det):
-                image_annotations.add(annotation_definition=dl.Box(
-                    left=xyxy[0],
-                    top=xyxy[1],
-                    right=xyxy[2],
-                    bottom=xyxy[3],
-                    label=id_to_label_map[str(int(cls))]  # when loading snapshot, json treats keys as str
-                ),
-                    model_info={'name': self.model_name,
-                                'confidence': conf})
+                image_annotations.add(annotation_definition=dl.Box(left=xyxy[0],
+                                                                   top=xyxy[1],
+                                                                   right=xyxy[2],
+                                                                   bottom=xyxy[3],
+                                                                   label=id_to_label_map[int(cls)]
+                                                                   # when loading snapshot, json treats keys as str
+                                                                   ),
+                                      model_info={'name': self.model_name,
+                                                  'confidence': conf})
             batch_annotations.append(image_annotations)
 
         # Process predictions
@@ -163,7 +152,6 @@ class ModelAdapter(dl.BaseModelAdapter):
         weights_path = os.path.join(local_path, weights_filename)
         torch.save(self.model, weights_path)
         self.configuration['weights_filename'] = weights_filename
-        self.snapshot.update()
 
     def train(self, data_path, output_path, **kwargs):
         """ Train the model according to data in local_path and save the snapshot to dump_path
@@ -172,25 +160,18 @@ class ModelAdapter(dl.BaseModelAdapter):
         :param data_path: `str` local File System path to where the data was downloaded and converted at
         :param output_path: `str` local File System path where to dump training mid-results (checkpoints, logs...)
         """
-        # TODO: set the name of the labels to the model
-        # Use opt.data....
         import train as train_script
-        # configuration = self.configuration
-        # configuration.update(self.snapshot.configuration)
-        # num_epochs = configuration.get('num_epochs', 10)
-        # batch_size = configuration.get('batch_size', 64)
-
         if os.path.isfile(self.configuration['hyp_yaml_fname']):
             hyp_full_path = self.configuration['hyp_yaml_fname']
         else:
-            hyp_full_path = os.path.join(os.path.dirname(__file__), 'data', 'hyps', self.configuration['hyp_yaml_fname'])
-        hyp = yaml.safe_load(open(hyp_full_path, 'r'))
+            hyp_full_path = os.path.join(os.path.dirname(__file__), 'data', 'hyps',
+                                         self.configuration['hyp_yaml_fname'])
+        hyp = yaml.safe_load(open(hyp_full_path, 'r', encoding='utf-8'))
         opt = self._create_opt(data_path=data_path, output_path=output_path, **kwargs)
         logger.info("Created OPT configuration: batch_size {b};  num_epochs {num} image_size {sz}".
                     format(b=opt.batch_size, num=opt.epochs, sz=opt.imgsz))
         logger.debug("OPT config full debug: {}".format(opt))
         # Make sure opt.weights has the exact model file as it will load from there
-
         train_results = train_script.train(hyp, opt, self.device, callbacks=Callbacks())
         logger.info('Train Finished. Actual output path: {}'.format(opt.save_dir))
 
@@ -405,7 +386,8 @@ class ModelAdapter(dl.BaseModelAdapter):
                             help='EarlyStopping patience (epochs without improvement)')
 
         parser.add_argument('--optimizer', type=str, choices=['SGD', 'Adam', 'AdamW'], default='SGD', help='optimizer')
-        parser.add_argument('--freeze', nargs='+', type=int, default=[0], help='Freeze layers: backbone=10, first3=0 1 2')
+        parser.add_argument('--freeze', nargs='+', type=int, default=[0],
+                            help='Freeze layers: backbone=10, first3=0 1 2')
 
         # NEW
         # parser.add_argument('--hyp', type=str, default='data/hyps/hyp.scratch.yaml', help='hyperparameters path')
@@ -425,27 +407,30 @@ class ModelAdapter(dl.BaseModelAdapter):
         return opt[0]
 
 
-def model_creation(project_name, env: str = 'prod'):
-    dl.setenv(env)
+def model_creation(project_name):
     project = dl.projects.get(project_name)
-
     codebase = dl.GitCodebase(git_url='https://github.com/dataloop-ai/yolov5.git',
                               git_tag='dtlpy-v6.1.1')
     model = project.models.create(model_name='yolo-v5',
                                   description='Global Dataloop Yolo V5 implemented in pytorch',
                                   output_type=dl.AnnotationType.BOX,
-                                #   is_global=(project.name == 'DataloopModels'),
                                   tags=['torch', 'yolo', 'detection'],
                                   codebase=codebase,
                                   entry_point='model_adapter.py',
                                   default_runtime=dl.KubernetesRuntime(runner_image=''),
-                                  default_configuration={'size': 640})
+                                  default_configuration={'weights_filename': 'yolov5s.pt',
+                                                         'img_size': [640, 640],
+                                                         'conf_thres': 0.25,
+                                                         'iou_thres': 0.45,
+                                                         'max_det': 1000,
+                                                         'device': 'cuda',
+                                                         'agnostic_nms': False,
+                                                         'half': False},
+                                  )
     return model
 
 
-def snapshot_creation(model: dl.Model, yolo_size='small', env: str = 'prod'):
-    dl.setenv(env)
-
+def snapshot_creation(model: dl.Model, yolo_size='small'):
     # TODO: can we add two model arc in one dir - yolov5l, yolov5s
     # Select the specific arch and gcs bucket
     if yolo_size == 'small':
@@ -453,17 +438,16 @@ def snapshot_creation(model: dl.Model, yolo_size='small', env: str = 'prod'):
         weights_filename = 'yolov5s.pt'
     elif yolo_size == 'large':
         gcs_prefix = 'yolo-v5-v6/large'
-        weights_filename = 'yolov5l.pt'
+        weights_filename = 'yolov5l6.pt'
     elif yolo_size == 'extra':
         gcs_prefix = 'yolo-v5-v6/extra'
-        weights_filename = 'yolov5x.pt'
+        weights_filename = 'yolov5x6.pt'
     elif yolo_size == 'openvino':
         gcs_prefix = 'yolo-v5-v6/openvino'
-        weights_filename = 'yolov5s.xml'
+        weights_filename = 'yolov5s6.xml'
 
     else:
         raise RuntimeError('yolo_size {!r} - un-supported, choose "small" "large" or "extra" '.format(yolo_size))
-
     with open('data/coco.yaml') as f:
         coco_yaml = yaml.safe_load(f)
     labels = coco_yaml['names']
@@ -475,20 +459,19 @@ def snapshot_creation(model: dl.Model, yolo_size='small', env: str = 'prod'):
                                       description='yolo v5 {} arch, pretrained on ms-coco'.format(yolo_size),
                                       tags=['pretrained', 'ms-coco'],
                                       dataset_id=None,
-                                      is_global=model.is_global,
                                       status='trained',
-                                      configuration={'weights_filename': weights_filename,
-                                                     'img_size': [640, 640],
-                                                     'conf_thres': 0.25,
-                                                     'data_yaml_fname': 'coco.yaml',
-                                                     'hyp_yaml_fname': 'hyp.finetune.yaml',
-                                                     'iou_thres': 0.45,
-                                                     'max_det': 1000,
-                                                     'device': 'cuda',
-                                                     'agnostic_nms': False,
-                                                     'half': False,
-                                                     'id_to_label_map': {ind: label for ind, label in
-                                                                         enumerate(labels)}},
+                                      configuration={
+                                          'weights_filename': weights_filename,
+                                          'img_size': [640, 640],
+                                          'conf_thres': 0.25,
+                                          'iou_thres': 0.45,
+                                          'max_det': 1000,
+                                          'device': 'cuda',
+                                          'agnostic_nms': False,
+                                          'half': False,
+                                          'data_yaml_fname': 'coco.yaml',
+                                          'hyp_yaml_fname': 'hyp.finetune.yaml',
+                                          'id_to_label_map': {ind: label for ind, label in enumerate(labels)}},
                                       project_id=model.project.id,
                                       bucket=bucket,
                                       labels=labels
