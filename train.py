@@ -36,7 +36,7 @@ FILE = Path(__file__).resolve()
 ROOT = FILE.parents[0]  # YOLOv5 root directory
 if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))  # add ROOT to PATH
-ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
+# ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 
 import val  # for end-of-epoch mAP
 from models.experimental import attempt_load
@@ -78,15 +78,15 @@ def train(hyp,  # path/to/hyp.yaml or hyp dictionary
 
     # Hyperparameters
     if isinstance(hyp, str):
-        with open(hyp, errors='ignore') as f:
+        with open(hyp, errors='ignore', encoding='utf-8') as f:
             hyp = yaml.safe_load(f)  # load hyps dict
     LOGGER.info(colorstr('hyperparameters: ') + ', '.join(f'{k}={v}' for k, v in hyp.items()))
 
     # Save run settings
     if not evolve:
-        with open(save_dir / 'hyp.yaml', 'w') as f:
+        with open(save_dir / 'hyp.yaml', 'w', encoding='utf-8') as f:
             yaml.safe_dump(hyp, f, sort_keys=False)
-        with open(save_dir / 'opt.yaml', 'w') as f:
+        with open(save_dir / 'opt.yaml', 'w', encoding='utf-8') as f:
             yaml.safe_dump(vars(opt), f, sort_keys=False)
 
     # Loggers
