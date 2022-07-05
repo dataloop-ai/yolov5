@@ -89,7 +89,7 @@ class ModelAdapter(dl.BaseModelAdapter):
         iou_thres = self.configuration['iou_thres']
         agnostic_nms = self.configuration['agnostic_nms']
         max_det = self.configuration['max_det']
-        id_to_label_map = self.configuration['id_to_label_map']
+        id_to_label_map = self.snapshot.id_to_label_map
 
         seen = batch.shape[0]
         dt = [0.0, 0.0, 0.0]
@@ -417,7 +417,9 @@ def model_creation(project_name):
                                   tags=['torch', 'yolo', 'detection'],
                                   codebase=codebase,
                                   entry_point='model_adapter.py',
-                                  default_runtime=dl.KubernetesRuntime(runner_image=''),
+                                  default_runtime=dl.KubernetesRuntime(
+                                      autoscaler=dl.KubernetesRabbitmqAutoscaler(),
+                                      runner_image='dataloop_runner-cpu/yolov5-openvino:1'),
                                   default_configuration={'weights_filename': 'yolov5s.pt',
                                                          'img_size': [640, 640],
                                                          'conf_thres': 0.25,
