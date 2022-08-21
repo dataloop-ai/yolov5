@@ -1,5 +1,6 @@
 from multiprocessing.pool import ThreadPool
 from multiprocessing import Lock
+from string import Template
 from pathlib import Path
 import dtlpy as dl
 import numpy as np
@@ -164,7 +165,7 @@ class ModelAdapter(dl.BaseModelAdapter):
         if os.path.isfile(self.configuration['hyp_yaml_fname']):
             hyp_full_path = self.configuration['hyp_yaml_fname']
         else:
-            hyp_full_path = os.path.join(os.path.dirname(__file__), 'data', 'hyps',
+            hyp_full_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'hyps',
                                          self.configuration['hyp_yaml_fname'])
         hyp = yaml.safe_load(open(hyp_full_path, 'r', encoding='utf-8'))
         opt = self._create_opt(data_path=data_path, output_path=output_path, **kwargs)
@@ -329,7 +330,7 @@ class ModelAdapter(dl.BaseModelAdapter):
         Create the data (or is it the config) yaml
         """
 
-        yaml_template = Path(Path(__file__).parent.absolute(), 'data_yaml_template.txt')
+        yaml_template = Path(Path(__file__).parent.parent.absolute(), 'data_yaml_template.txt')
         template = Template(yaml_template.open('r').read())
         yaml_str = str({
             'train': train_path,
