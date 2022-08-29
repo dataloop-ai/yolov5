@@ -359,7 +359,7 @@ class ModelAdapter(dl.BaseModelAdapter):
         parser.add_argument('--imgsz', '--img', '--img-size', type=int, default=max(self.configuration['img_size']),
                             help='train, val image size (pixels)')
         parser.add_argument('--data', type=str, default=data_yaml_path, help='dlp_data.yaml path')
-        parser.add_argument('--workers', type=int, default=self.configuration.get('workers', 8),
+        parser.add_argument('--workers', type=int, default=self.configuration.get('workers', 0),
                             help='maximum number of dataloader workers')
 
         parser.add_argument('--global_rank', type=int, default=-1, help='DDP parameter, do not modify')
