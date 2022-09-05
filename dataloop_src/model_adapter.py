@@ -1,6 +1,5 @@
 from multiprocessing.pool import ThreadPool
 from multiprocessing import Lock
-from string import Template
 from pathlib import Path
 import dtlpy as dl
 import numpy as np
@@ -14,6 +13,7 @@ import yaml
 import os
 
 from utils.callbacks import Callbacks
+from utils.loggers import Loggers
 from utils.augmentations import letterbox
 from utils.general import increment_path, non_max_suppression, scale_coords
 from models.common import DetectMultiBackend
@@ -23,10 +23,12 @@ logger = logging.getLogger('yolo-v5')
 logging.basicConfig(level='INFO')
 
 
+@dl.Package.defs.module(description='Model Adapter for Yolo object detection',
+                        init_inputs={'model_entity': dl.Model})
 class ModelAdapter(dl.BaseModelAdapter):
     """
     Yolo5 Model adapter - based on ultralytics pytorch implementation.
-    The class bind Dataloop model and snapshot entities with model code implementation
+    The class bind Dataloop model entitie with model code implementation
 
 
     # NOTE: Starting dtlpy version 1.35 we use a different BaseModelAdapter
@@ -39,7 +41,7 @@ class ModelAdapter(dl.BaseModelAdapter):
     def load(self, local_path, **kwargs):
         """ Loads model and populates self.model with a `runnable` model
 
-            This function is called by load_from_snapshot (download to local and then loads)
+            This function is called by load_from_model (download to local and then loads)
 
         :param local_path: `str` directory path in local fileSystem where the weights is taken from
         """
@@ -90,7 +92,7 @@ class ModelAdapter(dl.BaseModelAdapter):
         iou_thres = self.configuration['iou_thres']
         agnostic_nms = self.configuration['agnostic_nms']
         max_det = self.configuration['max_det']
-        id_to_label_map = self.snapshot.id_to_label_map
+        id_to_label_map = self.model_entity.id_to_label_map
 
         seen = batch.shape[0]
         dt = [0.0, 0.0, 0.0]
@@ -125,9 +127,9 @@ class ModelAdapter(dl.BaseModelAdapter):
                                                                    right=xyxy[2],
                                                                    bottom=xyxy[3],
                                                                    label=id_to_label_map[int(cls)]
-                                                                   # when loading snapshot, json treats keys as str
+                                                                   # when loading model, json treats keys as str
                                                                    ),
-                                      model_info={'name': self.model_name,
+                                      model_info={'name': self.model_entity.name,
                                                   'confidence': conf})
             batch_annotations.append(image_annotations)
 
@@ -145,7 +147,7 @@ class ModelAdapter(dl.BaseModelAdapter):
 
               Virtual method - need to implement
 
-              the function is called in save_to_snapshot which first save locally and then uploads to snapshot entity
+              the function is called in save_to_model which first save locally and then uploads to model entity
 
           :param local_path: `str` directory path in local FileSystem
         """
@@ -155,13 +157,14 @@ class ModelAdapter(dl.BaseModelAdapter):
         self.configuration['weights_filename'] = weights_filename
 
     def train(self, data_path, output_path, **kwargs):
-        """ Train the model according to data in local_path and save the snapshot to dump_path
+        """ Train the model according to data in local_path and save the model to dump_path
 
             Virtual method - need to implement
         :param data_path: `str` local File System path to where the data was downloaded and converted at
         :param output_path: `str` local File System path where to dump training mid-results (checkpoints, logs...)
         """
         import train as train_script
+        on_epoch_end_progress_callback = kwargs.get('on_epoch_end_callback')
         if os.path.isfile(self.configuration['hyp_yaml_fname']):
             hyp_full_path = self.configuration['hyp_yaml_fname']
         else:
@@ -172,8 +175,34 @@ class ModelAdapter(dl.BaseModelAdapter):
         logger.info("Created OPT configuration: batch_size {b};  num_epochs {num} image_size {sz}".
                     format(b=opt.batch_size, num=opt.epochs, sz=opt.imgsz))
         logger.debug("OPT config full debug: {}".format(opt))
+
         # Make sure opt.weights has the exact model file as it will load from there
-        train_results = train_script.train(hyp, opt, self.device, callbacks=Callbacks())
+
+        def on_epoch_end(epoch):
+            if on_epoch_end_progress_callback is not None:
+                on_epoch_end_progress_callback(i_epoch=epoch, n_epoch=opt.epochs)
+
+        yolov5_loggers = Loggers(opt=opt, hyp=hyp, include=[])
+
+        def on_fit_epoch_end(vals, epoch, best_fitness, fi):
+            # Callback runs at the end of each fit (train+val) epoch
+            x = {k: v for k, v in zip(yolov5_loggers.keys, vals)}  # dict
+            log_samples = list()
+            for k, v in x.items():
+                legend, figure = k.split('/')
+                log_samples.append(dl.LogSample(figure=figure,
+                                                legend=legend,
+                                                x=epoch,
+                                                y=float(v)))
+            self.model_entity.add_log_samples(samples=log_samples,
+                                              dataset_id=self.model_entity.dataset_id)
+
+        callbacks = Callbacks()
+        callbacks.register_action(hook='on_train_epoch_end',
+                                  callback=on_epoch_end)
+        callbacks.register_action(hook='on_fit_epoch_end',
+                                  callback=on_fit_epoch_end)
+        train_results = train_script.train(hyp, opt, self.device, callbacks=callbacks)
         logger.info('Train Finished. Actual output path: {}'.format(opt.save_dir))
 
         # load best model weights
@@ -192,23 +221,23 @@ class ModelAdapter(dl.BaseModelAdapter):
         :return:
         """
 
-        # update the label_map {id: label} to the one from the snapshot
-        id_to_label_map = self.snapshot.id_to_label_map
+        # update the label_map {id: label} to the one from the model
+        id_to_label_map = self.model_entity.id_to_label_map
         label_to_id_map = {v: k for k, v in id_to_label_map.items()}
         # White / Black list option to use
         white_list = kwargs.get('white_list', False)  # white list is the verified annotations labels to work with
         black_list = kwargs.get('black_list', False)  # black list is the illegal annotations labels to work with
-        empty_prob = kwargs.get('empty_prob', 0)  # do we constraint number of empty images
+        empty_prob = kwargs.get('empty_prob', 0)
 
-        for partiton in dl.SnapshotPartitionType:
-            in_labels_path = os.path.join(data_path, partiton, 'json')
-            in_images_path = os.path.join(data_path, partiton, 'items')
+        for subset in [e.value for e in list(dl.DatasetSubsetType)]:
+            in_labels_path = os.path.join(data_path, subset, 'json')
+            in_images_path = os.path.join(data_path, subset, 'items')
 
             # Train - Val split
-            labels_path = os.path.join(data_path, partiton, 'labels')
-            images_path = os.path.join(data_path, partiton, 'images')
+            labels_path = os.path.join(data_path, subset, 'labels')
+            images_path = os.path.join(data_path, subset, 'images')
 
-            # TODO: currently the function is called inside partition loop - need to fix
+            # TODO: currently the function is called inside subsets loop - need to fix
             if os.path.isdir(labels_path):
                 if len(os.listdir(labels_path)) > 0:
                     logger.warning('dir {} already been processed. Skipping'.format(labels_path))
@@ -248,12 +277,16 @@ class ModelAdapter(dl.BaseModelAdapter):
             pool.terminate()
 
         config_path = os.path.join(data_path, self.configuration['data_yaml_fname'])
-        self.create_yaml(
-            train_path=os.path.join(data_path, dl.SnapshotPartitionType.TRAIN),
-            val_path=os.path.join(data_path, dl.SnapshotPartitionType.VALIDATION),
-            classes=list(label_to_id_map.keys()),
-            config_path=config_path,
-        )
+        # create data yaml for the yolov5 training
+        yaml_str = str({
+            'train': os.path.join(data_path, dl.DatasetSubsetType.TRAIN),
+            'val': os.path.join(data_path, dl.DatasetSubsetType.VALIDATION),
+            'nc': len(list(label_to_id_map.keys())),
+            'names': list(label_to_id_map.keys())
+        })
+
+        with open(config_path, 'w') as f:
+            f.write(yaml_str)
 
         train_cnt = sum([len(files) for r, d, files in os.walk(data_path + '/train/labels')])
         val_cnt = sum([len(files) for r, d, files in os.walk(data_path + '/validation/labels')])
@@ -276,8 +309,8 @@ class ModelAdapter(dl.BaseModelAdapter):
             else:
                 item_metadata = data['metadata']
 
-            # partition = item_metadata['system']['snapshotPartition']
-            img_width, img_height = item_metadata['system']['width'], item_metadata['system']['height']
+            img_width = item_metadata['system']['width']
+            img_height = item_metadata['system']['height']
 
             output_txt_filepath = in_json_filepath.replace(in_labels_path, labels_path).replace('.json', '.txt')
             os.makedirs(os.path.dirname(output_txt_filepath), exist_ok=True)
@@ -324,23 +357,6 @@ class ModelAdapter(dl.BaseModelAdapter):
             with lock:
                 counters['corrupted_cnt'] += 1
             logger.error("file: {} had problem. Skipping\n\n{}".format(in_json_filepath, traceback.format_exc()))
-
-    def create_yaml(self, train_path, val_path, classes, config_path='/tmp/dlp_data.yaml'):
-        """
-        Create the data (or is it the config) yaml
-        """
-
-        yaml_template = Path(Path(__file__).parent.parent.absolute(), 'data_yaml_template.txt')
-        template = Template(yaml_template.open('r').read())
-        yaml_str = str({
-            'train': train_path,
-            'val': val_path,
-            'nc': len(classes),
-            'names': classes
-        })
-
-        with open(config_path, 'w') as f:
-            f.write(yaml_str)
 
     def _create_opt(self, data_path, output_path, **kwargs):
         import argparse
@@ -408,75 +424,97 @@ class ModelAdapter(dl.BaseModelAdapter):
         return opt[0]
 
 
-def model_creation(project_name):
-    project = dl.projects.get(project_name)
-    codebase = dl.GitCodebase(git_url='https://github.com/dataloop-ai/yolov5.git',
-                              git_tag='dtlpy-v6.1.1')
-    model = project.models.create(model_name='yolo-v5',
-                                  description='Global Dataloop Yolo V5 implemented in pytorch',
-                                  output_type=dl.AnnotationType.BOX,
-                                  tags=['torch', 'yolo', 'detection'],
-                                  codebase=codebase,
-                                  entry_point='model_adapter.py',
-                                  default_runtime=dl.KubernetesRuntime(
-                                      autoscaler=dl.KubernetesRabbitmqAutoscaler(),
-                                      runner_image='dataloop_runner-cpu/yolov5-openvino:1'),
-                                  default_configuration={'weights_filename': 'yolov5s.pt',
-                                                         'img_size': [640, 640],
-                                                         'conf_thres': 0.25,
-                                                         'iou_thres': 0.45,
-                                                         'max_det': 1000,
-                                                         'device': 'cuda',
-                                                         'agnostic_nms': False,
-                                                         'half': False},
-                                  )
-    return model
+def package_creation(project):
+    metadata = dl.Package.defs.get_ml_metadata(cls=ModelAdapter,
+                                               default_configuration={'weights_filename': 'yolov5s.pt',
+                                                                      'img_size': [640, 640],
+                                                                      'conf_thres': 0.25,
+                                                                      'iou_thres': 0.45,
+                                                                      'max_det': 1000,
+                                                                      'device': 'cuda',
+                                                                      'agnostic_nms': False,
+                                                                      'half': False},
+                                               output_type=dl.AnnotationType.BOX,
+                                               tags=['torch', 'object detection']
+                                               )
+    modules = dl.Package.defs.module_from_file(entry_point='dataloop/model_adapter.py')
+
+    package = project.packages.push(package_name='yolov5',
+                                    src_path=os.getcwd(),
+                                    # description='Global Dataloop Yolo V5 implemented in pytorch',
+                                    # scope='public',
+                                    package_type='ml',
+                                    codebase=dl.GitCodebase(git_url='https://github.com/dataloop-ai/yolov5.git',
+                                                            git_tag='mgmt3'),
+                                    modules=modules,
+                                    service_config={
+                                        'runtime': dl.KubernetesRuntime(pod_type=dl.INSTANCE_CATALOG_GPU_K80_S,
+                                                                        runner_image='dataloop_runner-cpu/yolov5-openvino:1',
+                                                                        autoscaler=dl.KubernetesRabbitmqAutoscaler(
+                                                                            min_replicas=0,
+                                                                            max_replicas=1),
+                                                                        concurrency=1).to_json()},
+                                    metadata=metadata)
+    # s = package.services.list().items[0]
+    # s.package_revision = package.version
+    # s.versions['dtlpy'] = '1.63.2'
+    # s.update(True)
+    return package
 
 
-def snapshot_creation(model: dl.Model, yolo_size='small'):
+def model_creation(package: dl.Package, yolo_size='small'):
     # TODO: can we add two model arc in one dir - yolov5l, yolov5s
     # Select the specific arch and gcs bucket
     if yolo_size == 'small':
-        gcs_prefix = 'yolo-v5/small'
-        weights_filename = 'yolov5s.pt'
+        url = 'https://storage.googleapis.com/model-mgmt-snapshots/yolo-v5-v6/small/yolov5s6.pt'
+        weights_filename = 'yolov5s6.pt'
     elif yolo_size == 'large':
-        gcs_prefix = 'yolo-v5-v6/large'
-        weights_filename = 'yolov5l6.pt'
+        url = 'https://storage.googleapis.com/model-mgmt-snapshots/yolo-v5-v6/large/yolov5l.pt'
+        weights_filename = 'yolov5l.pt'
     elif yolo_size == 'extra':
-        gcs_prefix = 'yolo-v5-v6/extra'
-        weights_filename = 'yolov5x6.pt'
-    elif yolo_size == 'openvino':
-        gcs_prefix = 'yolo-v5-v6/openvino'
-        weights_filename = 'yolov5s6.xml'
-
+        url = 'https://storage.googleapis.com/model-mgmt-snapshots/yolo-v5-v6/extra/yolov5x.pt'
+        weights_filename = 'yolov5x.pt'
+    # elif yolo_size == 'openvino':
+    #     gcs_prefix = 'yolo-v5-v6/openvino'
+    #     weights_filename = 'yolov5s6.xml'
     else:
         raise RuntimeError('yolo_size {!r} - un-supported, choose "small" "large" or "extra" '.format(yolo_size))
-    with open('data/coco.yaml') as f:
+    with open('data/coco.yaml', encoding='utf=8') as f:
         coco_yaml = yaml.safe_load(f)
     labels = coco_yaml['names']
-    bucket = dl.buckets.create(dl.BucketType.GCS,
-                               gcs_project_name='viewo-main',
-                               gcs_bucket_name='model-mgmt-snapshots',
-                               gcs_prefix=gcs_prefix)
-    snapshot = model.snapshots.create(snapshot_name='pretrained-yolo-v5-{}'.format(yolo_size),
-                                      description='yolo v5 {} arch, pretrained on ms-coco'.format(yolo_size),
-                                      tags=['pretrained', 'ms-coco'],
-                                      dataset_id=None,
-                                      status='trained',
-                                      configuration={
-                                          'weights_filename': weights_filename,
-                                          'img_size': [640, 640],
-                                          'conf_thres': 0.25,
-                                          'iou_thres': 0.45,
-                                          'max_det': 1000,
-                                          'device': 'cuda',
-                                          'agnostic_nms': False,
-                                          'half': False,
-                                          'data_yaml_fname': 'coco.yaml',
-                                          'hyp_yaml_fname': 'hyp.finetune.yaml',
-                                          'id_to_label_map': {ind: label for ind, label in enumerate(labels)}},
-                                      project_id=model.project.id,
-                                      bucket=bucket,
-                                      labels=labels
-                                      )
-    return snapshot
+
+    model = package.models.create(model_name='pretrained-yolo-v5-{}'.format(yolo_size),
+                                  description='yolo v5 {} arch, pretrained on ms-coco'.format(yolo_size),
+                                  tags=['pretrained', 'ms-coco'],
+                                  dataset_id=None,
+                                  status='trained',
+                                  configuration={
+                                      'weights_filename': weights_filename,
+                                      'img_size': [640, 640],
+                                      'conf_thres': 0.25,
+                                      'iou_thres': 0.45,
+                                      'max_det': 1000,
+                                      'device': 'cuda',
+                                      'agnostic_nms': False,
+                                      'half': False,
+                                      'data_yaml_fname': 'coco.yaml',
+                                      'hyp_yaml_fname': 'hyp.finetune.yaml',
+                                      'id_to_label_map': {ind: label for ind, label in enumerate(labels)}},
+                                  project_id=package.project.id,
+                                  labels=labels
+                                  )
+    artifact = dl.LinkArtifact(url=url,
+                               filename=weights_filename)
+    model.model_artifacts = [artifact]
+    model.update()
+    return model
+
+
+if __name__ == "__main__":
+    env = 'dev'
+    project_name = 'Sheep Face - Model Mgmt'
+    dl.setenv(env)
+    project = dl.projects.get(project_name)
+    package = project.packages.get('yolov5')
+    package.artifacts.list()
+    # model_creation(package=package)
