@@ -23,8 +23,8 @@ logger = logging.getLogger('yolo-v5')
 logging.basicConfig(level='INFO')
 
 
-@dl.Package.defs.module(description='Model Adapter for Yolo object detection',
-                        init_inputs={'model_entity': dl.Model})
+@dl.Package.decorators.module(description='Model Adapter for Yolo object detection',
+                              init_inputs={'model_entity': dl.Model})
 class ModelAdapter(dl.BaseModelAdapter):
     """
     Yolo5 Model adapter - based on ultralytics pytorch implementation.
@@ -425,17 +425,17 @@ class ModelAdapter(dl.BaseModelAdapter):
 
 
 def package_creation(project: dl.Project):
-    metadata = dl.Package.defs.get_ml_metadata(cls=ModelAdapter,
-                                               default_configuration={'weights_filename': 'yolov5s.pt',
-                                                                      'img_size': [640, 640],
-                                                                      'conf_thres': 0.25,
-                                                                      'iou_thres': 0.45,
-                                                                      'max_det': 1000,
-                                                                      'device': 'cuda',
-                                                                      'agnostic_nms': False,
-                                                                      'half': False},
-                                               output_type=dl.AnnotationType.BOX,
-                                               )
+    metadata = dl.Package.get_ml_metadata(cls=ModelAdapter,
+                                          default_configuration={'weights_filename': 'yolov5s.pt',
+                                                                 'img_size': [640, 640],
+                                                                 'conf_thres': 0.25,
+                                                                 'iou_thres': 0.45,
+                                                                 'max_det': 1000,
+                                                                 'device': 'cuda',
+                                                                 'agnostic_nms': False,
+                                                                 'half': False},
+                                          output_type=dl.AnnotationType.BOX,
+                                          )
     modules = dl.PackageModule.from_entry_point(entry_point='dataloop_src/model_adapter.py')
 
     package = project.packages.push(package_name='yolov5',
