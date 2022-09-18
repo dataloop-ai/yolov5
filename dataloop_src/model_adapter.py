@@ -424,7 +424,7 @@ class ModelAdapter(dl.BaseModelAdapter):
         return opt[0]
 
 
-def package_creation(project):
+def package_creation(project: dl.Project):
     metadata = dl.Package.defs.get_ml_metadata(cls=ModelAdapter,
                                                default_configuration={'weights_filename': 'yolov5s.pt',
                                                                       'img_size': [640, 640],
@@ -435,18 +435,17 @@ def package_creation(project):
                                                                       'agnostic_nms': False,
                                                                       'half': False},
                                                output_type=dl.AnnotationType.BOX,
-                                               tags=['torch', 'object detection']
                                                )
-    modules = dl.Package.defs.module_from_file(entry_point='dataloop/model_adapter.py')
+    modules = dl.PackageModule.from_entry_point(entry_point='dataloop_src/model_adapter.py')
 
     package = project.packages.push(package_name='yolov5',
                                     src_path=os.getcwd(),
                                     # description='Global Dataloop Yolo V5 implemented in pytorch',
-                                    # scope='public',
+                                    is_global=True,
                                     package_type='ml',
                                     codebase=dl.GitCodebase(git_url='https://github.com/dataloop-ai/yolov5.git',
                                                             git_tag='mgmt3'),
-                                    modules=modules,
+                                    modules=[modules],
                                     service_config={
                                         'runtime': dl.KubernetesRuntime(pod_type=dl.INSTANCE_CATALOG_GPU_K80_S,
                                                                         runner_image='dataloop_runner-cpu/yolov5-openvino:1',
@@ -488,6 +487,7 @@ def model_creation(package: dl.Package, yolo_size='small'):
                                   tags=['pretrained', 'ms-coco'],
                                   dataset_id=None,
                                   status='trained',
+                                  scope='public',
                                   configuration={
                                       'weights_filename': weights_filename,
                                       'img_size': [640, 640],
@@ -511,10 +511,11 @@ def model_creation(package: dl.Package, yolo_size='small'):
 
 
 if __name__ == "__main__":
-    env = 'dev'
+    env = 'rc'
     project_name = 'Sheep Face - Model Mgmt'
     dl.setenv(env)
     project = dl.projects.get(project_name)
     package = project.packages.get('yolov5')
     package.artifacts.list()
+
     # model_creation(package=package)
