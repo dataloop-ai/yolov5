@@ -24,6 +24,7 @@ logging.basicConfig(level='INFO')
 
 
 @dl.Package.decorators.module(description='Model Adapter for Yolo object detection',
+                              name='model-adapter',
                               init_inputs={'model_entity': dl.Model})
 class ModelAdapter(dl.BaseModelAdapter):
     """
@@ -165,11 +166,11 @@ class ModelAdapter(dl.BaseModelAdapter):
         """
         import train as train_script
         on_epoch_end_progress_callback = kwargs.get('on_epoch_end_callback')
-        if os.path.isfile(self.configuration['hyp_yaml_fname']):
-            hyp_full_path = self.configuration['hyp_yaml_fname']
+        hyp_yaml_fname = self.configuration.get('hyp_yaml_fname', 'hyp.finetune.yaml')
+        if os.path.isfile(hyp_yaml_fname):
+            hyp_full_path = hyp_yaml_fname
         else:
-            hyp_full_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'hyps',
-                                         self.configuration['hyp_yaml_fname'])
+            hyp_full_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'hyps', 'hyp_yaml_fname')
         hyp = yaml.safe_load(open(hyp_full_path, 'r', encoding='utf-8'))
         opt = self._create_opt(data_path=data_path, output_path=output_path, **kwargs)
         logger.info("Created OPT configuration: batch_size {b};  num_epochs {num} image_size {sz}".
@@ -276,7 +277,7 @@ class ModelAdapter(dl.BaseModelAdapter):
             pool.join()
             pool.terminate()
 
-        config_path = os.path.join(data_path, self.configuration['data_yaml_fname'])
+        config_path = os.path.join(data_path, self.configuration.get('data_yaml_fname', 'coco.yml'))
         # create data yaml for the yolov5 training
         yaml_str = str({
             'train': os.path.join(data_path, dl.DatasetSubsetType.TRAIN),
@@ -360,7 +361,7 @@ class ModelAdapter(dl.BaseModelAdapter):
 
     def _create_opt(self, data_path, output_path, **kwargs):
         import argparse
-        data_yaml_path = os.path.join(data_path, self.configuration['data_yaml_fname'])
+        data_yaml_path = os.path.join(data_path, self.configuration.get('data_yaml_fname', 'coco.yml'))
         if kwargs.get('auto_increase', False) and os.path.isdir(output_path):
             output_path = increment_path(Path(output_path)).as_posix()
 
@@ -427,6 +428,8 @@ class ModelAdapter(dl.BaseModelAdapter):
 def package_creation(project: dl.Project):
     metadata = dl.Package.get_ml_metadata(cls=ModelAdapter,
                                           default_configuration={'weights_filename': 'yolov5s.pt',
+                                                                 'num_epochs': 10,
+                                                                 'batch_size': 4,
                                                                  'img_size': [640, 640],
                                                                  'conf_thres': 0.25,
                                                                  'iou_thres': 0.45,
@@ -452,7 +455,9 @@ def package_creation(project: dl.Project):
                                                                         autoscaler=dl.KubernetesRabbitmqAutoscaler(
                                                                             min_replicas=0,
                                                                             max_replicas=1),
-                                                                        concurrency=1).to_json()},
+                                                                        concurrency=1).to_json(),
+                                        'initParams': {'model_entity': None}
+                                    },
                                     metadata=metadata)
     # s = package.services.list().items[0]
     # s.package_revision = package.version
@@ -512,10 +517,10 @@ def model_creation(package: dl.Package, yolo_size='small'):
 
 if __name__ == "__main__":
     env = 'rc'
-    project_name = 'Sheep Face - Model Mgmt'
+    project_name = 'DataloopModels'
     dl.setenv(env)
     project = dl.projects.get(project_name)
     package = project.packages.get('yolov5')
-    package.artifacts.list()
+    # package.artifacts.list()
 
     # model_creation(package=package)
