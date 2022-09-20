@@ -170,7 +170,7 @@ class ModelAdapter(dl.BaseModelAdapter):
         if os.path.isfile(hyp_yaml_fname):
             hyp_full_path = hyp_yaml_fname
         else:
-            hyp_full_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'hyps', 'hyp_yaml_fname')
+            hyp_full_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'hyps', hyp_yaml_fname)
         hyp = yaml.safe_load(open(hyp_full_path, 'r', encoding='utf-8'))
         opt = self._create_opt(data_path=data_path, output_path=output_path, **kwargs)
         logger.info("Created OPT configuration: batch_size {b};  num_epochs {num} image_size {sz}".
