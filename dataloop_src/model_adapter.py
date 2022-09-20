@@ -21,6 +21,7 @@ from utils.torch_utils import select_device, time_sync
 
 logger = logging.getLogger('yolo-v5')
 logging.basicConfig(level='INFO')
+logging.getLogger('PIL').setLevel('WARNING')
 
 
 @dl.Package.decorators.module(description='Model Adapter for Yolo object detection',
@@ -170,7 +171,8 @@ class ModelAdapter(dl.BaseModelAdapter):
         if os.path.isfile(hyp_yaml_fname):
             hyp_full_path = hyp_yaml_fname
         else:
-            hyp_full_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'hyps', hyp_yaml_fname)
+            yolo_root = os.path.dirname(os.path.dirname(__file__))
+            hyp_full_path = os.path.join(yolo_root, 'data', 'hyps', hyp_yaml_fname)
         hyp = yaml.safe_load(open(hyp_full_path, 'r', encoding='utf-8'))
         opt = self._create_opt(data_path=data_path, output_path=output_path, **kwargs)
         logger.info("Created OPT configuration: batch_size {b};  num_epochs {num} image_size {sz}".
@@ -451,7 +453,7 @@ def package_creation(project: dl.Project):
                                     modules=[modules],
                                     service_config={
                                         'runtime': dl.KubernetesRuntime(pod_type=dl.INSTANCE_CATALOG_GPU_K80_S,
-                                                                        runner_image='dataloop_runner-cpu/yolov5-openvino:1',
+                                                                        runner_image='gcr.io/viewo-g/piper/agent/runner/gpu/yolov5-openvino-gpu:2',
                                                                         autoscaler=dl.KubernetesRabbitmqAutoscaler(
                                                                             min_replicas=0,
                                                                             max_replicas=1),
@@ -515,12 +517,19 @@ def model_creation(package: dl.Package, yolo_size='small'):
     return model
 
 
+def test():
+    dl.setenv('rc')
+    adapter = ModelAdapter(None)
+    adapter.train_model(dl.models.get(model_id='6327f92e5fb473592a0f6441'))
+
+
 if __name__ == "__main__":
     env = 'rc'
     project_name = 'DataloopModels'
     dl.setenv(env)
-    project = dl.projects.get(project_name)
-    package = project.packages.get('yolov5')
+    # project = dl.projects.get(project_name)
+    # package = project.packages.get('yolov5')
     # package.artifacts.list()
+    test()
 
     # model_creation(package=package)
