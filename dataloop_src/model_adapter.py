@@ -10,6 +10,7 @@ import torch
 import tqdm
 import json
 import yaml
+import sys
 import os
 
 from utils.callbacks import Callbacks
@@ -22,6 +23,9 @@ from utils.torch_utils import select_device, time_sync
 logger = logging.getLogger('yolo-v5')
 logging.basicConfig(level='INFO')
 logging.getLogger('PIL').setLevel('WARNING')
+
+YOLO_ROOT = os.path.dirname(os.path.dirname(__file__))
+sys.path.insert(0, YOLO_ROOT)
 
 
 @dl.Package.decorators.module(description='Model Adapter for Yolo object detection',
@@ -171,8 +175,7 @@ class ModelAdapter(dl.BaseModelAdapter):
         if os.path.isfile(hyp_yaml_fname):
             hyp_full_path = hyp_yaml_fname
         else:
-            yolo_root = os.path.dirname(os.path.dirname(__file__))
-            hyp_full_path = os.path.join(yolo_root, 'data', 'hyps', hyp_yaml_fname)
+            hyp_full_path = os.path.join(YOLO_ROOT, 'data', 'hyps', hyp_yaml_fname)
         hyp = yaml.safe_load(open(hyp_full_path, 'r', encoding='utf-8'))
         opt = self._create_opt(data_path=data_path, output_path=output_path, **kwargs)
         logger.info("Created OPT configuration: batch_size {b};  num_epochs {num} image_size {sz}".
