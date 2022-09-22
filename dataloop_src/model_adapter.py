@@ -24,9 +24,6 @@ logger = logging.getLogger('yolo-v5')
 logging.basicConfig(level='INFO')
 logging.getLogger('PIL').setLevel('WARNING')
 
-YOLO_ROOT = os.path.dirname(os.path.dirname(__file__))
-sys.path.insert(0, YOLO_ROOT)
-
 
 @dl.Package.decorators.module(description='Model Adapter for Yolo object detection',
                               name='model-adapter',
@@ -175,7 +172,8 @@ class ModelAdapter(dl.BaseModelAdapter):
         if os.path.isfile(hyp_yaml_fname):
             hyp_full_path = hyp_yaml_fname
         else:
-            hyp_full_path = os.path.join(YOLO_ROOT, 'data', 'hyps', hyp_yaml_fname)
+            yolo_root = os.path.dirname(os.path.dirname(__file__))
+            hyp_full_path = os.path.join(yolo_root, 'data', 'hyps', hyp_yaml_fname)
         hyp = yaml.safe_load(open(hyp_full_path, 'r', encoding='utf-8'))
         opt = self._create_opt(data_path=data_path, output_path=output_path, **kwargs)
         logger.info("Created OPT configuration: batch_size {b};  num_epochs {num} image_size {sz}".
@@ -530,9 +528,9 @@ if __name__ == "__main__":
     env = 'rc'
     project_name = 'DataloopModels'
     dl.setenv(env)
-    # project = dl.projects.get(project_name)
-    # package = project.packages.get('yolov5')
-    # package.artifacts.list()
+    project = dl.projects.get(project_name)
+    package = project.packages.get('yolov5')
+    package.artifacts.list()
     test()
 
     # model_creation(package=package)

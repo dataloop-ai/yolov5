@@ -417,7 +417,7 @@ class LoadImagesAndLabels(Dataset):
         self.label_files = img2label_paths(self.img_files)  # labels
         cache_path = (p if p.is_file() else Path(self.label_files[0]).parent).with_suffix('.cache')
         try:
-            assert False # ORS no cache try
+            assert False  # Shabtay's no cache try
             cache, exists = np.load(cache_path, allow_pickle=True).item(), True  # load dict
             assert cache['version'] == self.cache_version  # same version
             assert cache['hash'] == get_hash(self.label_files + self.img_files)  # same hash
@@ -512,7 +512,7 @@ class LoadImagesAndLabels(Dataset):
         x = {}  # dict
         nm, nf, ne, nc, msgs = 0, 0, 0, 0, []  # number missing, found, empty, corrupt, messages
         desc = f"{prefix}Scanning '{path.parent / path.stem}' images and labels..."
-        with Pool(NUM_THREADS) as pool:
+        with ThreadPool(NUM_THREADS) as pool:
             pbar = tqdm(pool.imap(verify_image_label, zip(self.img_files, self.label_files, repeat(prefix))),
                         desc=desc, total=len(self.img_files))
             for im_file, l, shape, segments, nm_f, nf_f, ne_f, nc_f, msg in pbar:

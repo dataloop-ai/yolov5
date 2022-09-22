@@ -35,7 +35,7 @@ from utils.metrics import box_iou, fitness
 # Settings
 FILE = Path(__file__).resolve()
 ROOT = FILE.parents[1]  # YOLOv5 root directory
-NUM_THREADS = 1#min(8, max(1, os.cpu_count() - 1))  # number of YOLOv5 multiprocessing threads
+NUM_THREADS = 1  # min(8, max(1, os.cpu_count() - 1))  # number of YOLOv5 multiprocessing threads
 VERBOSE = str(os.getenv('VERBOSE', True)).lower() == 'true'  # global verbose mode
 
 torch.set_printoptions(linewidth=320, precision=5, profile='long')
