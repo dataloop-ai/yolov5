@@ -89,7 +89,7 @@ class ModelAdapter(dl.BaseModelAdapter):
 
     def predict(self, batch, **kwargs):
         """ Model inference (predictions) on batch of image
-        :param batch: `np.ndarray` NCHW
+        :param batch: list of downloaded items
         :return `list[dl.AnnotationCollection]` prediction results by len(batch)
         """
         img_size = self.configuration['img_size']
@@ -101,7 +101,6 @@ class ModelAdapter(dl.BaseModelAdapter):
         max_det = self.configuration['max_det']
         id_to_label_map = self.model_entity.id_to_label_map
 
-        seen = batch.shape[0]
         dt = [0.0, 0.0, 0.0]
         # Run inference
         # self.model.warmup(imgsz=(1, 3, *imgsz), half=half)  # warmup
@@ -110,6 +109,7 @@ class ModelAdapter(dl.BaseModelAdapter):
         preprocessed_batch = torch.from_numpy(np.asarray([self.preprocess(img) for img in batch])).to(self.device)
         preprocessed_batch = preprocessed_batch.half() if self.half else preprocessed_batch.float()  # uint8 to fp16/32
         logger.info('[preprocess]: model batch size{}'.format(preprocessed_batch.shape))
+        seen = preprocessed_batch.shape[0]
 
         t2 = time_sync()
         dt[0] += t2 - t1
@@ -526,11 +526,21 @@ def test():
     adapter.train_model(dl.models.get(model_id='6327f92e5fb473592a0f6441'))
 
 
+def test_predict():
+    dl.setenv('dev')
+    item = dl.items.get(item_id='634ea83a0eaadd6d37d80028')
+    model_entity = dl.models.get(model_id='634e70b0044861d12e517bb6')
+    adapter = ModelAdapter(model_entity=model_entity)
+    adapter.load_from_model(model_entity=model_entity)
+    adapter.predict_items(items=[item])
+
+
 if __name__ == "__main__":
-    env = 'prod'
+    dl.setenv('dev')
     project_name = 'DataloopModels'
-    dl.setenv(env)
+
     project = dl.projects.get(project_name)
+    test_predict()
     # package = project.packages.get('yolov5')
     # package.artifacts.list()
     # test()
