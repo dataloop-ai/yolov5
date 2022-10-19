@@ -31,7 +31,7 @@ logging.getLogger('PIL').setLevel('WARNING')
 class ModelAdapter(dl.BaseModelAdapter):
     """
     Yolo5 Model adapter - based on ultralytics pytorch implementation.
-    The class bind Dataloop model entitie with model code implementation
+    The class bind Dataloop model entity with model code implementation
 
 
     # NOTE: Starting dtlpy version 1.35 we use a different BaseModelAdapter
@@ -39,6 +39,10 @@ class ModelAdapter(dl.BaseModelAdapter):
     """
 
     def __init__(self, model_entity):
+        if isinstance(model_entity, str):
+            model_entity = dl.models.get(model_id=model_entity)
+        if isinstance(model_entity, dict) and 'model_id' in model_entity:
+            model_entity = dl.models.get(model_id=model_entity['model_id'])
         super(ModelAdapter, self).__init__(model_entity)
 
     def load(self, local_path, **kwargs):
@@ -509,12 +513,10 @@ def model_creation(package: dl.Package, yolo_size='small'):
                                       'hyp_yaml_fname': 'hyp.finetune.yaml',
                                       'id_to_label_map': {ind: label for ind, label in enumerate(labels)}},
                                   project_id=package.project.id,
+                                  model_artifacts=[dl.LinkArtifact(url=url,
+                                                                   filename=weights_filename)],
                                   labels=labels
                                   )
-    artifact = dl.LinkArtifact(url=url,
-                               filename=weights_filename)
-    model.model_artifacts = [artifact]
-    model.update()
     return model
 
 
@@ -525,12 +527,12 @@ def test():
 
 
 if __name__ == "__main__":
-    env = 'rc'
+    env = 'prod'
     project_name = 'DataloopModels'
     dl.setenv(env)
     project = dl.projects.get(project_name)
-    package = project.packages.get('yolov5')
-    package.artifacts.list()
-    test()
+    # package = project.packages.get('yolov5')
+    # package.artifacts.list()
+    # test()
 
     # model_creation(package=package)
