@@ -129,15 +129,15 @@ class ModelAdapter(dl.BaseModelAdapter):
             det[:, :4] = scale_coords(p_img_shape, det[:, :4], img_shape).round()
             image_annotations = dl.AnnotationCollection()
             for *xyxy, conf, cls in reversed(det):
-                image_annotations.add(annotation_definition=dl.Box(left=xyxy[0],
-                                                                   top=xyxy[1],
-                                                                   right=xyxy[2],
-                                                                   bottom=xyxy[3],
+                image_annotations.add(annotation_definition=dl.Box(left=float(xyxy[0]),
+                                                                   top=float(xyxy[1]),
+                                                                   right=float(xyxy[2]),
+                                                                   bottom=float(xyxy[3]),
                                                                    label=id_to_label_map[int(cls)]
                                                                    # when loading model, json treats keys as str
                                                                    ),
                                       model_info={'name': self.model_entity.name,
-                                                  'confidence': conf})
+                                                  'confidence': float(conf)})
             batch_annotations.append(image_annotations)
 
         # Process predictions
@@ -470,6 +470,7 @@ def package_creation(project: dl.Project):
     # s.package_revision = package.version
     # s.versions['dtlpy'] = '1.63.2'
     # s.update(True)
+    package.build()
     return package
 
 
@@ -533,16 +534,16 @@ def test_predict():
     adapter = ModelAdapter(model_entity=model_entity)
     adapter.load_from_model(model_entity=model_entity)
     adapter.predict_items(items=[item])
-
-
-if __name__ == "__main__":
-    dl.setenv('dev')
-    project_name = 'DataloopModels'
-
-    project = dl.projects.get(project_name)
-    test_predict()
-    # package = project.packages.get('yolov5')
-    # package.artifacts.list()
-    # test()
-
-    # model_creation(package=package)
+#
+#
+# if __name__ == "__main__":
+#     dl.setenv('dev')
+#     project_name = 'DataloopModels'
+#
+#     project = dl.projects.get(project_name)
+#     test_predict()
+#     # package = project.packages.get('yolov5')
+#     # package.artifacts.list()
+#     # test()
+#
+#     # model_creation(package=package)
