@@ -530,20 +530,20 @@ def test():
 def test_predict():
     dl.setenv('dev')
     item = dl.items.get(item_id='634ea83a0eaadd6d37d80028')
-    model_entity = dl.models.get(model_id='634e70b0044861d12e517bb6')
+    model_entity = dl.models.get(model_id='634feb6626391fa5c631a02f')
     adapter = ModelAdapter(model_entity=model_entity)
     adapter.load_from_model(model_entity=model_entity)
     adapter.predict_items(items=[item])
-#
-#
-# if __name__ == "__main__":
-#     dl.setenv('dev')
-#     project_name = 'DataloopModels'
-#
-#     project = dl.projects.get(project_name)
-#     test_predict()
-#     # package = project.packages.get('yolov5')
-#     # package.artifacts.list()
-#     # test()
-#
-#     # model_creation(package=package)
+
+
+if __name__ == "__main__":
+    dl.setenv('dev')
+    project_name = 'DataloopModels'
+
+    project = dl.projects.get(project_name)
+    test_predict()
+    # package = project.packages.get('yolov5')
+    # package.artifacts.list()
+    # test()
+
+    # model_creation(package=package)
