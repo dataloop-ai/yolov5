@@ -533,7 +533,8 @@ def test_predict():
     model_entity = dl.models.get(model_id='634feb6626391fa5c631a02f')
     adapter = ModelAdapter(model_entity=model_entity)
     adapter.load_from_model(model_entity=model_entity)
-    adapter.predict_items(items=[item])
+    # adapter.predict_items(items=[item])
+    adapter.predict_data_uris(data_uris=[])
 
 
 if __name__ == "__main__":
@@ -541,7 +542,7 @@ if __name__ == "__main__":
     project_name = 'DataloopModels'
 
     project = dl.projects.get(project_name)
-    test_predict()
+    # test_predict()
     # package = project.packages.get('yolov5')
     # package.artifacts.list()
     # test()
