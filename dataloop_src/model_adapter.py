@@ -160,7 +160,10 @@ class ModelAdapter(dl.BaseModelAdapter):
         """
         weights_filename = kwargs.get('weights_filename', self.configuration['weights_filename'])
         weights_path = os.path.join(local_path, weights_filename)
-        torch.save(self.model, weights_path)
+        ckpt = {
+            'model': self.model.model
+        }
+        torch.save(ckpt, weights_path)
         self.configuration['weights_filename'] = weights_filename
 
     def train(self, data_path, output_path, **kwargs):
