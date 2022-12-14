@@ -182,7 +182,9 @@ class ModelAdapter(dl.BaseModelAdapter):
             yolo_root = os.path.dirname(os.path.dirname(__file__))
             hyp_full_path = os.path.join(yolo_root, 'data', 'hyps', hyp_yaml_fname)
         hyp = yaml.safe_load(open(hyp_full_path, 'r', encoding='utf-8'))
-        opt = self._create_opt(data_path=data_path, output_path=output_path, **kwargs)
+        opt = self._create_opt(data_path=data_path,
+                               output_path=output_path,
+                               **kwargs)
         logger.info("Created OPT configuration: batch_size {b};  num_epochs {num} image_size {sz}".
                     format(b=opt.batch_size, num=opt.epochs, sz=opt.imgsz))
         logger.debug("OPT config full debug: {}".format(opt))
@@ -372,6 +374,8 @@ class ModelAdapter(dl.BaseModelAdapter):
     def _create_opt(self, data_path, output_path, **kwargs):
         import argparse
         data_yaml_path = os.path.join(data_path, self.configuration.get('data_yaml_fname', 'coco.yml'))
+        artifacts_path = os.path.join(data_path, self.configuration.get('artifacts_path', './'))
+        weights_filepath = os.path.join(artifacts_path, self.configuration['weights_filename'])
         if kwargs.get('auto_increase', False) and os.path.isdir(output_path):
             output_path = increment_path(Path(output_path)).as_posix()
 
@@ -381,8 +385,7 @@ class ModelAdapter(dl.BaseModelAdapter):
         parser.add_argument('--batch-size', type=int, default=self.configuration.get('batch_size', 4),
                             help='batch size for all GPUs')
         # parser.add_argument('--total-batch-size',  type=int, default=16, help='total batch size for all GPUs')
-        parser.add_argument('--weights', type=str, default=self.configuration['weights_filename'],
-                            help='initial weights file name')
+        parser.add_argument('--weights', type=str, default=weights_filepath, help='initial weights file name')
         parser.add_argument('--imgsz', '--img', '--img-size', type=int, default=max(self.configuration['img_size']),
                             help='train, val image size (pixels)')
         parser.add_argument('--data', type=str, default=data_yaml_path, help='dlp_data.yaml path')
