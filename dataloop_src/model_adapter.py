@@ -160,9 +160,14 @@ class ModelAdapter(dl.BaseModelAdapter):
         """
         weights_filename = kwargs.get('weights_filename', self.configuration['weights_filename'])
         weights_path = os.path.join(local_path, weights_filename)
-        ckpt = {
-            'model': self.model.model
-        }
+        if isinstance(self.model, DetectMultiBackend):
+            ckpt = {
+                'model': self.model.model
+            }
+        else:
+            ckpt = {
+                'model': self.model
+            }
         torch.save(ckpt, weights_path)
         self.configuration['weights_filename'] = weights_filename
 
