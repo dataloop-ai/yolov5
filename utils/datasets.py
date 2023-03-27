@@ -417,6 +417,7 @@ class LoadImagesAndLabels(Dataset):
         self.label_files = img2label_paths(self.img_files)  # labels
         cache_path = (p if p.is_file() else Path(self.label_files[0]).parent).with_suffix('.cache')
         try:
+            LOGGER.warning('DTLPY - Skipping reading cache')  # display warnings
             assert False  # Shabtay's no cache try
             cache, exists = np.load(cache_path, allow_pickle=True).item(), True  # load dict
             assert cache['version'] == self.cache_version  # same version
@@ -536,6 +537,8 @@ class LoadImagesAndLabels(Dataset):
         x['msgs'] = msgs  # warnings
         x['version'] = self.cache_version  # cache version
         try:
+            LOGGER.warning('DTLPY - Skipping writing cache')  # display warnings
+            assert False
             np.save(path, x)  # save cache for next time
             path.with_suffix('.cache.npy').rename(path)  # remove .npy suffix
             LOGGER.info(f'{prefix}New cache created: {path}')

@@ -469,7 +469,7 @@ def package_creation(project: dl.Project):
                                     modules=[modules],
                                     service_config={
                                         'runtime': dl.KubernetesRuntime(pod_type=dl.INSTANCE_CATALOG_GPU_K80_S,
-                                                                        runner_image='gcr.io/viewo-g/piper/agent/runner/gpu/yolov5-openvino-gpu:2',
+                                                                        runner_image='gcr.io/viewo-g/piper/agent/runner/gpu/yolov5-openvino-gpu:3',
                                                                         autoscaler=dl.KubernetesRabbitmqAutoscaler(
                                                                             min_replicas=0,
                                                                             max_replicas=1),
@@ -539,17 +539,16 @@ def test():
 
 
 def test_predict():
-    dl.setenv('dev')
-    item = dl.items.get(item_id='634ea83a0eaadd6d37d80028')
-    model_entity = dl.models.get(model_id='634feb6626391fa5c631a02f')
+    dl.setenv('rc')
+
+    item = dl.items.get(item_id='624e9f9cb3db115c085e332b')
+    model_entity = dl.models.get(model_id='631eef89890d8c205424d0d8')
     adapter = ModelAdapter(model_entity=model_entity)
-    adapter.load_from_model(model_entity=model_entity)
-    # adapter.predict_items(items=[item])
-    adapter.predict_data_uris(data_uris=[])
+    items, annotations = adapter.predict_items(items=[item])
 
 
 if __name__ == "__main__":
-    dl.setenv('dev')
+    dl.setenv('rc')
     project_name = 'DataloopModels'
 
     project = dl.projects.get(project_name)

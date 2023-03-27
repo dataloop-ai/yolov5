@@ -15,12 +15,6 @@ import dtlpy as dl
 import numpy as np
 import json
 
-dl.setenv('dev')
-model_entity = dl.models.get(None, '630df1a34a273a156144019b')
-package = model_entity.package
-# model_entity.bucket.upload(r"C:\Users\Shabtay\Downloads\New folder")
-adapter = ModelAdapter(None)
-adapter.load_from_model(model_entity=model_entity)
 
 
 def prd():
@@ -44,7 +38,7 @@ def cln():
 # cln()
 def trn():
     package.models.list().print()
-    m = dl.models.get(model_id='6310845dca2e52b041de5f88')
+    m = dl.models.get(model_id='640ee84307a569363353ed6a')
     # m.labels = list(m.dataset.labels_flat_dict.keys())
     # m.update()
 
@@ -137,4 +131,9 @@ def upload_metric():
 
 
 if __name__ == "__main__":
+    dl.setenv('prod')
+    model_entity = dl.models.get(None, '640ee84307a569363353ed6a')
+    package = model_entity.package
+    # model_entity.bucket.upload(r"C:\Users\Shabtay\Downloads\New folder")
+    adapter = ModelAdapter(model_entity=model_entity)
     trn()
