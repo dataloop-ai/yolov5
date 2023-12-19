@@ -10,7 +10,6 @@ import torch
 import tqdm
 import json
 import yaml
-import sys
 import os
 
 from utils.callbacks import Callbacks
@@ -72,12 +71,19 @@ class ModelAdapter(dl.BaseModelAdapter):
         self.model = model
         self.device = device
         self.half = half
+
+        self.img_size = self.configuration['img_size']
+        self.conf_thres = self.configuration['conf_thres']
+        self.iou_thres = self.configuration['iou_thres']
+        self.agnostic_nms = self.configuration['agnostic_nms']
+        self.max_det = self.configuration['max_det']
+        self.id_to_label_map = self.model_entity.id_to_label_map
         logger.info('Model Load Speed: {:.1f}ms'.format(1e3 * (time_sync() - t1)))
 
     def preprocess(self, x):
         # Padded resize
         img = letterbox(x,
-                        self.configuration['img_size'],
+                        self.img_size,
                         stride=self.model.stride,
                         auto=self.model.pt
                         )[0]
@@ -120,7 +126,8 @@ class ModelAdapter(dl.BaseModelAdapter):
         dt[1] += t3 - t2
 
         # NMS
-        pred = non_max_suppression(pred, conf_thres, iou_thres, agnostic=agnostic_nms, max_det=max_det)
+        pred = non_max_suppression(pred, self.conf_thres, self.iou_thres, agnostic=self.agnostic_nms,
+                                   max_det=self.max_det)
         dt[2] += time_sync() - t3
         batch_annotations = list()
         for i_img, det in enumerate(pred):  # per image
@@ -133,7 +140,7 @@ class ModelAdapter(dl.BaseModelAdapter):
                                                                    top=float(xyxy[1]),
                                                                    right=float(xyxy[2]),
                                                                    bottom=float(xyxy[3]),
-                                                                   label=id_to_label_map[int(cls)]
+                                                                   label=self.id_to_label_map[int(cls)]
                                                                    # when loading model, json treats keys as str
                                                                    ),
                                       model_info={'name': self.model_entity.name,
@@ -145,7 +152,7 @@ class ModelAdapter(dl.BaseModelAdapter):
         # Print results
         t = tuple(x / seen * 1E3 for x in dt)  # speeds per image
         logger.info(
-            f'Speed: %.1fms pre-process, %.1fms inference, %.1fms NMS per image at shape {(1, 3, *img_size)}' % t)
+            f'Speed: %.1fms pre-process, %.1fms inference, %.1fms NMS per image at shape {(1, 3, *self.img_size)}' % t)
         return batch_annotations
 
     def save(self, local_path, **kwargs):
@@ -240,8 +247,7 @@ class ModelAdapter(dl.BaseModelAdapter):
         """
 
         # update the label_map {id: label} to the one from the model
-        id_to_label_map = self.model_entity.id_to_label_map
-        label_to_id_map = {v: k for k, v in id_to_label_map.items()}
+        label_to_id_map = {v: k for k, v in self.id_to_label_map.items()}
         # White / Black list option to use
         white_list = kwargs.get('white_list', False)  # white list is the verified annotations labels to work with
         black_list = kwargs.get('black_list', False)  # black list is the illegal annotations labels to work with
@@ -310,7 +316,7 @@ class ModelAdapter(dl.BaseModelAdapter):
         val_cnt = sum([len(files) for r, d, files in os.walk(data_path + '/validation/labels')])
 
         msg = "Finished converting the data. Creating config file: {!r}. ".format(config_path) + \
-              "\nLabels dict {}.\nlabel_map   {}".format(label_to_id_map, id_to_label_map) + \
+              "\nLabels dict {}.\nlabel_map   {}".format(label_to_id_map, self.id_to_label_map) + \
               "\nVal count   : {}\nTrain count: {}".format(val_cnt, train_cnt)
         logger.info(msg)
 
@@ -425,136 +431,5 @@ class ModelAdapter(dl.BaseModelAdapter):
         parser.add_argument('--freeze', nargs='+', type=int, default=[0],
                             help='Freeze layers: backbone=10, first3=0 1 2')
 
-        # NEW
-        # parser.add_argument('--hyp', type=str, default='data/hyps/hyp.scratch.yaml', help='hyperparameters path')
-        # parser.add_argument('--bucket', type=str, default='', help='gsutil bucket')
-        # parser.add_argument('--device', default='', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
-        # parser.add_argument('--project', default='runs/train', help='save to project/name')
-        # parser.add_argument('--name', default='exp', help='save to project/name')
-        # parser.add_argument('--exist-ok', action='store_true', help='existing project/name ok, do not increment')
-        # parser.add_argument('--entity', default=None, help='W&B entity')
-        # parser.add_argument('--upload_dataset', action='store_true', help='Upload dataset as W&B artifact table')
-        # parser.add_argument('--bbox_interval', type=int, default=-1,
-        #                     help='Set bounding-box image logging interval for W&B')
-        # parser.add_argument('--artifact_alias', type=str, default="latest",
-        #                     help='version of dataset artifact to be used')
-
         opt = parser.parse_known_args()
         return opt[0]
-
-
-def package_creation(project: dl.Project):
-    metadata = dl.Package.get_ml_metadata(cls=ModelAdapter,
-                                          default_configuration={'weights_filename': 'yolov5s.pt',
-                                                                 'num_epochs': 10,
-                                                                 'batch_size': 4,
-                                                                 'img_size': [640, 640],
-                                                                 'conf_thres': 0.25,
-                                                                 'iou_thres': 0.45,
-                                                                 'max_det': 1000,
-                                                                 'device': 'cuda',
-                                                                 'agnostic_nms': False,
-                                                                 'half': False},
-                                          output_type=dl.AnnotationType.BOX,
-                                          )
-    modules = dl.PackageModule.from_entry_point(entry_point='dataloop_src/model_adapter.py')
-
-    package = project.packages.push(package_name='yolov5',
-                                    src_path=os.getcwd(),
-                                    # description='Global Dataloop Yolo V5 implemented in pytorch',
-                                    is_global=True,
-                                    package_type='ml',
-                                    codebase=dl.GitCodebase(git_url='https://github.com/dataloop-ai/yolov5.git',
-                                                            git_tag='mgmt3'),
-                                    modules=[modules],
-                                    service_config={
-                                        'runtime': dl.KubernetesRuntime(pod_type=dl.INSTANCE_CATALOG_GPU_K80_S,
-                                                                        runner_image='gcr.io/viewo-g/piper/agent/runner/gpu/yolov5-openvino-gpu:3',
-                                                                        autoscaler=dl.KubernetesRabbitmqAutoscaler(
-                                                                            min_replicas=0,
-                                                                            max_replicas=1),
-                                                                        concurrency=1).to_json(),
-                                        'initParams': {'model_entity': None}
-                                    },
-                                    metadata=metadata)
-    # s = package.services.list().items[0]
-    # s.package_revision = package.version
-    # s.versions['dtlpy'] = '1.63.2'
-    # s.update(True)
-    package.build()
-    return package
-
-
-def model_creation(package: dl.Package, yolo_size='small'):
-    # TODO: can we add two model arc in one dir - yolov5l, yolov5s
-    # Select the specific arch and gcs bucket
-    if yolo_size == 'small':
-        url = 'https://storage.googleapis.com/model-mgmt-snapshots/yolo-v5-v6/small/yolov5s6.pt'
-        weights_filename = 'yolov5s6.pt'
-    elif yolo_size == 'large':
-        url = 'https://storage.googleapis.com/model-mgmt-snapshots/yolo-v5-v6/large/yolov5l.pt'
-        weights_filename = 'yolov5l.pt'
-    elif yolo_size == 'extra':
-        url = 'https://storage.googleapis.com/model-mgmt-snapshots/yolo-v5-v6/extra/yolov5x.pt'
-        weights_filename = 'yolov5x.pt'
-    # elif yolo_size == 'openvino':
-    #     gcs_prefix = 'yolo-v5-v6/openvino'
-    #     weights_filename = 'yolov5s6.xml'
-    else:
-        raise RuntimeError('yolo_size {!r} - un-supported, choose "small" "large" or "extra" '.format(yolo_size))
-    with open('data/coco.yaml', encoding='utf=8') as f:
-        coco_yaml = yaml.safe_load(f)
-    labels = coco_yaml['names']
-
-    model = package.models.create(model_name='pretrained-yolo-v5-{}'.format(yolo_size),
-                                  description='yolo v5 {} arch, pretrained on ms-coco'.format(yolo_size),
-                                  tags=['pretrained', 'ms-coco'],
-                                  dataset_id=None,
-                                  status='trained',
-                                  scope='public',
-                                  configuration={
-                                      'weights_filename': weights_filename,
-                                      'img_size': [640, 640],
-                                      'conf_thres': 0.25,
-                                      'iou_thres': 0.45,
-                                      'max_det': 1000,
-                                      'device': 'cuda',
-                                      'agnostic_nms': False,
-                                      'half': False,
-                                      'data_yaml_fname': 'coco.yaml',
-                                      'hyp_yaml_fname': 'hyp.finetune.yaml',
-                                      'id_to_label_map': {ind: label for ind, label in enumerate(labels)}},
-                                  project_id=package.project.id,
-                                  model_artifacts=[dl.LinkArtifact(url=url,
-                                                                   filename=weights_filename)],
-                                  labels=labels
-                                  )
-    return model
-
-
-def test():
-    dl.setenv('rc')
-    adapter = ModelAdapter(None)
-    adapter.train_model(dl.models.get(model_id='6327f92e5fb473592a0f6441'))
-
-
-def test_predict():
-    dl.setenv('rc')
-
-    item = dl.items.get(item_id='624e9f9cb3db115c085e332b')
-    model_entity = dl.models.get(model_id='631eef89890d8c205424d0d8')
-    adapter = ModelAdapter(model_entity=model_entity)
-    items, annotations = adapter.predict_items(items=[item])
-
-
-if __name__ == "__main__":
-    dl.setenv('rc')
-    project_name = 'DataloopModels'
-
-    project = dl.projects.get(project_name)
-    # test_predict()
-    # package = project.packages.get('yolov5')
-    # package.artifacts.list()
-    # test()
-
-    # model_creation(package=package)
